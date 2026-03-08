@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Movie Orbit 3D</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <main class="app">
+        <section class="top">
+            <h1>Movie Orbit 3D</h1>
+            <p class="subtitle">Direction-preserving 3D mode: top 5 closest movies are highlighted, next 20 are dim but
+                still clickable. Click any node to jump to that movie.</p>
+
+            <div class="search">
+                <input id="search-input" type="text" placeholder="Type a movie name (e.g. Creed III)"
+                    autocomplete="off" />
+                <button id="search-btn">Launch</button>
+                <div id="autocomplete-list"></div>
+            </div>
+            <p class="msg" id="message"></p>
+        </section>
+
+        <section class="panel">
+            <div class="legend">
+                <span><b>Center Node:</b> searched movie</span>
+                <span><b>Bright Nodes:</b> top 5 closest movies</span>
+                <span><b>Dim Nodes:</b> next 20, still clickable</span>
+                <span><b>Lines:</b> top 5 only</span>
+                <span><b>Mouse:</b> drag rotate, wheel zoom, right-drag pan</span>
+            </div>
+            <div id="space"></div>
+            <div class="meta" id="meta">
+                <div class="meta-title">No movie selected</div>
+                <div class="meta-sub">Search above to generate a movie orbit.</div>
+            </div>
+        </section>
+    </main>
+
+    <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+
+</html>

@@ -50,7 +50,6 @@ Thumbs.db
 *.log
 
 # Local data / outputs
-data/
 outputs/
 artifacts/
 tmp/
