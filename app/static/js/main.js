@@ -86,9 +86,9 @@ function setMeta(movie, prefix) {
     const score = movie.score === null || movie.score === undefined ? '-' : Number(movie.score).toFixed(1);
     const year = movie.release_date ? String(movie.release_date).trim().split('/').pop() : 'Unknown Year';
     const overview = (movie.overview || '').slice(0, 220);
-    const cx = movie.coord && Number.isFinite(movie.coord.x) ? movie.coord.x.toFixed(4) : '0.0000';
-    const cy = movie.coord && Number.isFinite(movie.coord.y) ? movie.coord.y.toFixed(4) : '0.0000';
-    const cz = movie.coord && Number.isFinite(movie.coord.z) ? movie.coord.z.toFixed(4) : '0.0000';
+    const cx = movie.xyz && Number.isFinite(movie.xyz.x) ? movie.xyz.x.toFixed(4) : '0.0000';
+    const cy = movie.xyz && Number.isFinite(movie.xyz.y) ? movie.xyz.y.toFixed(4) : '0.0000';
+    const cz = movie.xyz && Number.isFinite(movie.xyz.z) ? movie.xyz.z.toFixed(4) : '0.0000';
     const distLine = Number.isFinite(movie.distance) ? ` | d=${movie.distance.toFixed(4)}` : '';
     const rankLine = Number.isFinite(movie.rank) ? ` | rank ${movie.rank}` : '';
 
