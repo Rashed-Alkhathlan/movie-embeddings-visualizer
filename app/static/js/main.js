@@ -85,7 +85,7 @@ function clearSpaceElement() {
 function setMeta(movie, prefix) {
     const score = movie.score === null || movie.score === undefined ? '-' : Number(movie.score).toFixed(1);
     const year = movie.release_date ? String(movie.release_date).trim().split('/').pop() : 'Unknown Year';
-    const overview = (movie.overview || '').slice(0, 220);
+    const overview = (movie.overview || '').slice(0, 500);
     const cx = movie.xyz && Number.isFinite(movie.xyz.x) ? movie.xyz.x.toFixed(4) : '0.0000';
     const cy = movie.xyz && Number.isFinite(movie.xyz.y) ? movie.xyz.y.toFixed(4) : '0.0000';
     const cz = movie.xyz && Number.isFinite(movie.xyz.z) ? movie.xyz.z.toFixed(4) : '0.0000';
@@ -96,7 +96,7 @@ function setMeta(movie, prefix) {
         <div class="meta-title">${escHtml(prefix)} ${escHtml(movie.title)}</div>
         <div class="meta-sub"><span class="chip">${escHtml(movie.genre || 'Unknown')}</span>Score ${score} | ${escHtml(year)}${distLine}${rankLine}</div>
         <div class="meta-sub">true rel xyz: (${cx}, ${cy}, ${cz}) | render scale x${WORLD_SCALE}</div>
-        <div class="meta-sub">${escHtml(overview || 'No overview available.')}${(movie.overview || '').length > 220 ? '...' : ''}</div>
+        <div class="meta-sub">${escHtml(overview || 'No overview available.')}${(movie.overview || '').length > 500 ? '...' : ''}</div>
     `;
 }
 
