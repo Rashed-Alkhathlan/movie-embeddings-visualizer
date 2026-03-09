@@ -112,7 +112,7 @@ function createFallbackEngine(onNodeClick) {
     const ctx = canvas.getContext('2d');
     const state = {
         nodes: [],
-        lines: [],
+        animLines: [], // { aId, bId, progress, direction } direction: 1=extending, -1=retracting
         stars: [],
         incoming: null,
         transition: null,
@@ -192,7 +192,10 @@ function createFallbackEngine(onNodeClick) {
 
             if (progress >= 1) {
                 state.nodes = state.incoming.nodes;
-                state.lines = state.incoming.lines;
+                // Add new extending lines (old ones are already retracting)
+                for (const { aId, bId } of state.incoming.newLineIds) {
+                    state.animLines.push({ aId, bId, progress: 0, direction: 1 });
+                }
                 const done = state.incoming.resolve;
                 state.incoming = null;
                 state.transition = null;
@@ -202,18 +205,25 @@ function createFallbackEngine(onNodeClick) {
 
         const projected = state.nodes.map((n) => ({ ...n, ...project(n) })).sort((a, b) => a.z - b.z);
         const byId = new Map(projected.map((p) => [p.id, p]));
+        const LINE_SPEED = 0.024; // progress units per frame
 
-        for (const [aId, bId] of state.lines) {
-            const a = byId.get(aId);
-            const b = byId.get(bId);
+        for (const line of state.animLines) {
+            const a = byId.get(line.aId);
+            const b = byId.get(line.bId);
             if (!a || !b) continue;
-            ctx.strokeStyle = 'rgba(118,190,255,0.72)';
+            line.progress = Math.max(0, Math.min(1, line.progress + LINE_SPEED * line.direction));
+            const tx = a.sx + (b.sx - a.sx) * line.progress;
+            const ty = a.sy + (b.sy - a.sy) * line.progress;
+            const alpha = 0.72 * (line.direction === 1 ? line.progress : 1 - line.progress);
+            ctx.strokeStyle = `rgba(118,190,255,${alpha})`;
             ctx.lineWidth = 1.8;
             ctx.beginPath();
             ctx.moveTo(a.sx, a.sy);
-            ctx.lineTo(b.sx, b.sy);
+            ctx.lineTo(tx, ty);
             ctx.stroke();
         }
+        // Prune fully retracted lines
+        state.animLines = state.animLines.filter(l => !(l.direction === -1 && l.progress <= 0));
 
         for (const p of projected) {
             const radius = (p.center ? 16 : 12) * p.scale;
@@ -245,7 +255,6 @@ function createFallbackEngine(onNodeClick) {
             }
         }
 
-        state.nodes = projected.map(({ sx, sy, scale, _r, ...rest }) => rest);
         state._projected = projected;
         requestAnimationFrame(draw);
     }
@@ -304,14 +313,23 @@ function createFallbackEngine(onNodeClick) {
             const data = toGraphNodes(payload);
             if (!animated || !state.nodes.length) {
                 state.nodes = data.nodes;
-                state.lines = data.nodes.filter((n) => !n.center && Number(n.rank) <= 5).map((n) => [data.centerId, n.id]);
+                state.animLines = data.nodes
+                    .filter((n) => !n.center && Number(n.rank) <= 5)
+                    .map((n) => ({ aId: data.centerId, bId: n.id, progress: 1, direction: 1 }));
                 return Promise.resolve();
             }
             return new Promise((resolve) => {
                 const startById = new Map(state.nodes.map((n) => [n.id, { x: n.x, y: n.y, z: n.z }]));
+                // Retract existing lines
+                for (const line of state.animLines) {
+                    line.direction = -1;
+                }
+                // Queue new lines to extend once transition completes
                 state.incoming = {
                     nodes: data.nodes,
-                    lines: data.nodes.filter((n) => !n.center && Number(n.rank) <= 5).map((n) => [data.centerId, n.id]),
+                    newLineIds: data.nodes
+                        .filter((n) => !n.center && Number(n.rank) <= 5)
+                        .map((n) => ({ aId: data.centerId, bId: n.id })),
                     resolve,
                 };
                 state.transition = {
