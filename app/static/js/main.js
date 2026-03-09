@@ -1,4 +1,4 @@
-import { fetchPoster } from './utils.js';
+import { fetchPoster, escHtml } from './utils.js';
 
 const input = document.getElementById('search-input');
 const button = document.getElementById('search-btn');
@@ -362,6 +362,7 @@ function createFallbackEngine(onNodeClick) {
     };
 }
 
+// throw new Error('CDN blocked'); // Force fallback for testing
 async function createThreeEngine(onNodeClick) {
     clearSpaceElement();
     const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js');
@@ -369,7 +370,7 @@ async function createThreeEngine(onNodeClick) {
     const { CSS2DRenderer, CSS2DObject } = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/renderers/CSS2DRenderer.js');
 
     let hoveredMesh = null;
-    const state = { objectsById: new Map(), centerId: null, pendingCenterId: null, connections: [], transition: null };
+    const state = { objectsById: new Map(), centerId: null, pendingCenterId: null, animLines: [], transition: null };
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 9000);
@@ -409,16 +410,24 @@ async function createThreeEngine(onNodeClick) {
     const starGeo = new THREE.BufferGeometry();
     const starPos = new Float32Array(4500);
     for (let i = 0; i < 1500; i += 1) {
-        starPos[i * 3 + 0] = (Math.random() - 0.5) * 2000;
-        starPos[i * 3 + 1] = (Math.random() - 0.5) * 1200;
-        starPos[i * 3 + 2] = (Math.random() - 0.5) * 1800;
+        starPos[i * 3 + 0] = (Math.random() - 0.5) * 10000;
+        starPos[i * 3 + 1] = (Math.random() - 0.5) * 10000;
+        starPos[i * 3 + 2] = (Math.random() - 0.5) * 10000;
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xd7e8ff, size: 1.45, transparent: true, opacity: 0.8 }));
+    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xd7e8ff, size: 1.25, transparent: true, opacity: 0.8 }));
     scene.add(stars);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+
+    function isCloseNode(node) {
+        return Number(node.rank) <= 5;
+    }
+
+    function labelVisibleByDefault(node) {
+        return node.center || isCloseNode(node);
+    }
 
     function makeLabel(text, isCenter) {
         const el = document.createElement('div');
@@ -430,65 +439,155 @@ async function createThreeEngine(onNodeClick) {
     function buildNodeObject(node) {
         const group = new THREE.Group();
         group.position.set(node.x, node.y, node.z);
-        const mesh = new THREE.Mesh(
-            new THREE.SphereGeometry(node.radius, 28, 28),
-            new THREE.MeshStandardMaterial({
-                color: node.color,
-                emissive: node.center ? 0x1acfa4 : (node.primary ? 0x295ea7 : 0x16273f),
-                emissiveIntensity: node.center ? 0.62 : (node.primary ? 0.32 : 0.08),
-                metalness: 0.12,
-                roughness: 0.38,
-                transparent: !node.center && !node.primary,
-                opacity: !node.center && !node.primary ? 0.28 : 1,
-            }),
-        );
+
+        const close = isCloseNode(node);
+
+        const mat = new THREE.MeshStandardMaterial({
+            color: node.color,
+            emissive: node.center ? 0x1acfa4 : (close ? 0x295ea7 : 0x1a3a5c),
+            emissiveIntensity: node.center ? 0.80 : (close ? 0.75 : 0.65),
+            metalness: 0.12,
+            roughness: 0.38,
+            transparent: true,
+            opacity: node.center ? 1 : (close ? 1 : 0.90),
+        });
+
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(node.radius * 2, 28, 28), mat);
         mesh.userData.movie = node;
         group.add(mesh);
+
         const halo = new THREE.Mesh(
-            new THREE.SphereGeometry(node.radius * (node.center ? 1.65 : 1.45), 24, 24),
+            new THREE.SphereGeometry(node.radius * (node.center ? 3.65 : 3.45), 24, 24),
             new THREE.MeshBasicMaterial({
-                color: node.center ? 0x67f5d6 : (node.primary ? 0x7cc0ff : 0x355276),
+                color: node.center ? 0x67f5d6 : (close ? 0x7cc0ff : 0x355276),
                 transparent: true,
-                opacity: node.center ? 0.23 : (node.primary ? 0.15 : 0.04),
+                opacity: node.center ? 0.23 : (close ? 0.15 : 0.07),
                 depthWrite: false,
             }),
         );
         group.add(halo);
+
+        const hitRadius = node.center ? node.radius * 1.5 : Math.max(node.radius * 3.5, 18);
+        const hitMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(hitRadius, 8, 8),
+            new THREE.MeshBasicMaterial({ visible: false, depthWrite: false }),
+        );
+        hitMesh.userData.movie = node;
+        hitMesh.userData.isHitProxy = true;
+        hitMesh.userData.visualMesh = mesh;
+        group.add(hitMesh);
+
         const label = makeLabel(node.title, node.center);
-        if (!node.center && !node.primary) {
-            label.element.style.display = 'none';
-        }
         label.position.set(0, node.radius + 6.2, 0);
-        group.add(label);
-        group.userData = { mesh, label, target: new THREE.Vector3(node.x, node.y, node.z), movie: node };
+
+        // KEY FIX: only add label to scene graph if it should always be visible.
+        // Far node labels are kept detached and only added/removed on hover.
+        if (labelVisibleByDefault(node)) {
+            group.add(label);
+        }
+
+        group.userData = { mesh, hitMesh, label, target: new THREE.Vector3(node.x, node.y, node.z), movie: node };
         return group;
     }
 
-    function rebuildConnections() {
-        state.connections.forEach((line) => graphGroup.remove(line));
-        state.connections = [];
-        const centerObj = state.objectsById.get(state.centerId);
-        if (!centerObj) return;
-        state.objectsById.forEach((obj, id) => {
-            if (id === state.centerId || Number(obj.userData.movie.rank) > 5) return;
-            const geo = new THREE.BufferGeometry().setFromPoints([centerObj.position.clone(), obj.position.clone()]);
-            const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x79beff, transparent: true, opacity: 0.72 }));
-            graphGroup.add(line);
-            state.connections.push({ line, id });
+    function removeNodeObject(obj) {
+        // Remove label element from DOM if it was attached
+        const label = obj.userData.label;
+        if (label && label.element.parentNode) {
+            label.element.parentNode.removeChild(label.element);
+        }
+        obj.traverse((child) => {
+            if (child.isMesh) {
+                child.geometry.dispose();
+                child.material.dispose();
+            }
+        });
+        graphGroup.remove(obj);
+    }
+
+    function getVisualMesh(hitOrVisual) {
+        return hitOrVisual.userData.isHitProxy
+            ? hitOrVisual.userData.visualMesh
+            : hitOrVisual;
+    }
+
+    function setHoverOn(obj, hitMesh) {
+        const visual = getVisualMesh(hitMesh);
+        visual.material.emissiveIntensity = 0.95;
+        visual.material.emissive.set(0x6ad4ff);
+        visual.scale.setScalar(1.18);
+        if (!labelVisibleByDefault(hitMesh.userData.movie)) {
+            // Attach label to scene graph so renderer picks it up
+            obj.add(obj.userData.label);
+        }
+    }
+
+    function setHoverOff(obj, hitMesh) {
+        const visual = getVisualMesh(hitMesh);
+        const node = hitMesh.userData.movie;
+        const close = isCloseNode(node);
+        visual.material.emissiveIntensity = node.center ? 0.62 : (close ? 0.45 : 0.28);
+        visual.material.emissive.set(node.center ? 0x1acfa4 : (close ? 0x295ea7 : 0x1a3a5c));
+        visual.scale.setScalar(1);
+        if (!labelVisibleByDefault(node)) {
+            // Detach label from scene graph AND remove its DOM element
+            obj.remove(obj.userData.label);
+            if (obj.userData.label.element.parentNode) {
+                obj.userData.label.element.parentNode.removeChild(obj.userData.label.element);
+            }
+        }
+    }
+
+    const LINE_SPEED = 0.018;
+
+    function tickAnimLines() {
+        for (const al of state.animLines) {
+            al.progress = Math.max(0, Math.min(1, al.progress + LINE_SPEED * al.direction));
+            const aObj = state.objectsById.get(al.aId);
+            const bObj = state.objectsById.get(al.bId);
+            if (!aObj || !bObj) { al.progress = 0; continue; }
+            const aPos = aObj.position;
+            const bPos = bObj.position;
+            const tipX = aPos.x + (bPos.x - aPos.x) * al.progress;
+            const tipY = aPos.y + (bPos.y - aPos.y) * al.progress;
+            const tipZ = aPos.z + (bPos.z - aPos.z) * al.progress;
+            al.line.material.opacity = 0.72 * (al.direction === 1 ? al.progress : (1 - al.progress));
+            const arr = al.line.geometry.attributes.position.array;
+            arr[0] = aPos.x; arr[1] = aPos.y; arr[2] = aPos.z;
+            arr[3] = tipX;   arr[4] = tipY;   arr[5] = tipZ;
+            al.line.geometry.attributes.position.needsUpdate = true;
+        }
+        state.animLines = state.animLines.filter((al) => {
+            if (al.direction === -1 && al.progress <= 0) {
+                graphGroup.remove(al.line);
+                al.line.geometry.dispose();
+                al.line.material.dispose();
+                return false;
+            }
+            return true;
         });
     }
 
-    function updateConnections() {
-        const centerObj = state.objectsById.get(state.centerId);
+    function spawnLines(centerId, nodeIds) {
+        const centerObj = state.objectsById.get(centerId);
         if (!centerObj) return;
-        state.connections.forEach(({ line, id }) => {
+        for (const id of nodeIds) {
             const obj = state.objectsById.get(id);
-            if (!obj) return;
-            const arr = line.geometry.attributes.position.array;
-            arr[0] = centerObj.position.x; arr[1] = centerObj.position.y; arr[2] = centerObj.position.z;
-            arr[3] = obj.position.x; arr[4] = obj.position.y; arr[5] = obj.position.z;
-            line.geometry.attributes.position.needsUpdate = true;
-        });
+            if (!obj) continue;
+            const geo = new THREE.BufferGeometry();
+            const positions = new Float32Array(6);
+            positions[0] = centerObj.position.x; positions[1] = centerObj.position.y; positions[2] = centerObj.position.z;
+            positions[3] = centerObj.position.x; positions[4] = centerObj.position.y; positions[5] = centerObj.position.z;
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const mat = new THREE.LineBasicMaterial({ color: 0x79beff, transparent: true, opacity: 0 });
+            const line = new THREE.Line(geo, mat);
+            graphGroup.add(line);
+            state.animLines.push({ aId: centerId, bId: id, progress: 0, direction: 1, line });
+        }
+    }
+
+    function retractAllLines() {
+        for (const al of state.animLines) al.direction = -1;
     }
 
     function onResize() {
@@ -511,11 +610,14 @@ async function createThreeEngine(onNodeClick) {
     renderer.domElement.addEventListener('click', () => {
         if (!hoveredMesh || isBusy) return;
         const movie = hoveredMesh.userData.movie;
+        const visual = getVisualMesh(hoveredMesh);
+        visual.material.emissiveIntensity = 2.0;
+        visual.material.emissive.set(0xffffff);
+        visual.material.color.set(0xffffff);
         onNodeClick(movie.title, movie);
     });
 
     function tick(now) {
-
         if (state.transition) {
             const elapsed = now - state.transition.start;
             const p = Math.min(1, elapsed / state.transition.duration);
@@ -523,8 +625,9 @@ async function createThreeEngine(onNodeClick) {
                 ? 4 * p * p * p
                 : 1 - Math.pow(-2 * p + 2, 3) / 2;
 
-            state.objectsById.forEach((obj, id) => {
-                const start = state.transition.startById.get(id) || { x: 0, y: 0, z: -220 };
+            state.objectsById.forEach((obj) => {
+                const id = obj.userData.movie.id;
+                const start = state.transition.startById.get(id) || { x: 0, y: 0, z: 0 };
                 const target = obj.userData.target;
                 obj.position.set(
                     start.x + (target.x - start.x) * eased,
@@ -540,29 +643,40 @@ async function createThreeEngine(onNodeClick) {
                     state.centerId = state.pendingCenterId;
                     state.pendingCenterId = null;
                 }
-                rebuildConnections();
+                spawnLines(state.centerId, [...state.objectsById.keys()].filter((id) => {
+                    const obj = state.objectsById.get(id);
+                    return id !== state.centerId && Number(obj.userData.movie.rank) <= 5;
+                }));
                 state.transition.resolve();
                 state.transition = null;
                 controls.enabled = true;
             }
         }
 
-        updateConnections();
+        tickAnimLines();
+
+        const hitTargets = [];
+        state.objectsById.forEach((obj) => {
+            if (!obj.userData.movie.center) hitTargets.push(obj.userData.hitMesh);
+        });
 
         raycaster.setFromCamera(pointer, camera);
-        const hits = raycaster.intersectObjects(Array.from(state.objectsById.values()).map((o) => o.userData.mesh).filter((m) => !m.userData.movie.center), false);
+        const hits = raycaster.intersectObjects(hitTargets, false);
         const nextHovered = hits[0] ? hits[0].object : null;
-        if (hoveredMesh && hoveredMesh !== nextHovered) {
-            hoveredMesh.material.emissiveIntensity = hoveredMesh.userData.movie.primary ? 0.32 : 0.08;
-            hoveredMesh.scale.setScalar(1);
-        }
-        hoveredMesh = nextHovered;
-        if (hoveredMesh) {
-            hoveredMesh.material.emissiveIntensity = 0.95;
-            hoveredMesh.scale.setScalar(1.14);
-            renderer.domElement.style.cursor = 'pointer';
-        } else {
-            renderer.domElement.style.cursor = 'grab';
+
+        if (hoveredMesh !== nextHovered) {
+            if (hoveredMesh) {
+                const prevObj = state.objectsById.get(hoveredMesh.userData.movie.id);
+                if (prevObj) setHoverOff(prevObj, hoveredMesh);
+            }
+            hoveredMesh = nextHovered;
+            if (hoveredMesh) {
+                const obj = state.objectsById.get(hoveredMesh.userData.movie.id);
+                if (obj) setHoverOn(obj, hoveredMesh);
+                renderer.domElement.style.cursor = 'pointer';
+            } else {
+                renderer.domElement.style.cursor = 'grab';
+            }
         }
 
         renderer.render(scene, camera);
@@ -574,51 +688,49 @@ async function createThreeEngine(onNodeClick) {
     return {
         applyGraph(payload, animated) {
             const data = toGraphNodes(payload);
-            if (!animated || state.objectsById.size === 0) {
-                state.objectsById.forEach((obj) => graphGroup.remove(obj));
-                state.objectsById.clear();
-                data.nodes.forEach((n) => {
-                    const obj = buildNodeObject(n);
-                    graphGroup.add(obj);
-                    state.objectsById.set(n.id, obj);
-                });
+
+            // Snapshot current world positions before tearing down
+            const oldPositions = new Map();
+            state.objectsById.forEach((obj, id) => {
+                oldPositions.set(id, { x: obj.position.x, y: obj.position.y, z: obj.position.z });
+            });
+            const oldCenterPos = state.centerId && oldPositions.has(state.centerId)
+                ? oldPositions.get(state.centerId)
+                : { x: 0, y: 0, z: 0 };
+
+            // Tear down all existing nodes cleanly
+            hoveredMesh = null;
+            state.objectsById.forEach((obj) => removeNodeObject(obj));
+            state.objectsById.clear();
+            retractAllLines();
+
+            // Build all new nodes
+            const startById = new Map();
+            data.nodes.forEach((n) => {
+                const obj = buildNodeObject(n);
+
+                if (animated) {
+                    const startPos = oldPositions.get(n.id) || oldCenterPos;
+                    obj.position.set(startPos.x, startPos.y, startPos.z);
+                    startById.set(n.id, { ...startPos });
+                }
+
+                graphGroup.add(obj);
+                state.objectsById.set(n.id, obj);
+            });
+
+            state.pendingCenterId = data.centerId;
+
+            if (!animated) {
                 state.centerId = data.centerId;
-                rebuildConnections();
+                spawnLines(data.centerId, data.nodes
+                    .filter((n) => !n.center && Number(n.rank) <= 5)
+                    .map((n) => n.id));
+                state.animLines.forEach((al) => { al.progress = 1; });
                 return Promise.resolve();
             }
 
-            const oldMap = new Map(state.objectsById);
-            const nextMap = new Map();
-            data.nodes.forEach((n) => {
-                let obj = oldMap.get(n.id);
-                if (!obj) {
-                    obj = buildNodeObject(n);
-                    const centerObj = state.objectsById.get(state.centerId);
-                    if (centerObj) obj.position.copy(centerObj.position);
-                    graphGroup.add(obj);
-                }
-                obj.userData.movie = n;
-                obj.userData.mesh.userData.movie = n;
-                obj.userData.target = new THREE.Vector3(n.x, n.y, n.z);
-                obj.userData.label.element.textContent = n.title;
-                obj.userData.label.element.className = n.center ? 'label center' : 'label';
-                obj.userData.label.element.style.display = (!n.center && !n.primary) ? 'none' : 'block';
-                nextMap.set(n.id, obj);
-            });
-
-            oldMap.forEach((obj, id) => {
-                if (!nextMap.has(id)) {
-                    graphGroup.remove(obj);
-                }
-            });
-
-            state.objectsById = nextMap;
-            state.pendingCenterId = data.centerId;
             return new Promise((resolve) => {
-                const startById = new Map();
-                state.objectsById.forEach((obj, id) => {
-                    startById.set(id, { x: obj.position.x, y: obj.position.y, z: obj.position.z });
-                });
                 state.transition = {
                     start: performance.now(),
                     duration: 2200,
@@ -657,6 +769,8 @@ async function fetchAutocomplete(q) {
     }
 }
 
+const nSelect = document.getElementById('n-select');
+
 async function performSearch(query, animated) {
     const q = (query || input.value || '').trim();
     if (!q || isBusy || !engine) return;
@@ -664,8 +778,10 @@ async function performSearch(query, animated) {
     message.textContent = '';
     isBusy = true;
 
+    const n = nSelect ? nSelect.value : 25;
+
     try {
-        const res = await fetch(`/graph?q=${encodeURIComponent(q)}&n=25`);
+        const res = await fetch(`/graph?q=${encodeURIComponent(q)}&n=${n}`);
         const data = await res.json();
         if (!res.ok) {
             isBusy = false;
@@ -682,15 +798,6 @@ async function performSearch(query, animated) {
         isBusy = false;
         message.textContent = 'Could not reach the server.';
     }
-}
-
-function escHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
 }
 
 function onNodeClick(title, movie) {
@@ -729,18 +836,41 @@ document.addEventListener('click', (e) => {
     }
 });
 
-async function initEngine() {
-    try {
-        engine = await createThreeEngine(onNodeClick);
-    } catch (_err) {
-        message.textContent = '3D CDN blocked here. Using built-in renderer fallback.';
+let engineMode = '3d'; // '3d' or '2d'
+const engineToggle = document.getElementById('engine-toggle');
+
+async function initEngine(mode) {
+    engineMode = mode || engineMode;
+    engine = null;
+
+    if (engineMode === '3d') {
+        try {
+            engine = await createThreeEngine(onNodeClick);
+            engineToggle.textContent = 'Switch to 2D';
+            engineToggle.classList.remove('active-2d');
+        } catch (_err) {
+            message.textContent = '3D unavailable, falling back to 2D.';
+            engineMode = '2d';
+            engine = createFallbackEngine(onNodeClick);
+            engineToggle.textContent = 'Switch to 3D';
+            engineToggle.classList.add('active-2d');
+        }
+    } else {
         engine = createFallbackEngine(onNodeClick);
+        engineToggle.textContent = 'Switch to 3D';
+        engineToggle.classList.add('active-2d');
     }
+
     if (lastPayload) {
         await engine.applyGraph(lastPayload, false);
     } else {
         performSearch('Creed III', false);
     }
 }
+
+engineToggle.addEventListener('click', () => {
+    const next = engineMode === '3d' ? '2d' : '3d';
+    initEngine(next);
+});
 
 initEngine();

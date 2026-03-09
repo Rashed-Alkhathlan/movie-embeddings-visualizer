@@ -40,7 +40,7 @@ def graph():
         n = int(n_raw)
     except ValueError:
         n = 25
-    n = max(5, min(n, 50))
+    n = max(5, min(n, 100))
 
     center, neighbors = get_movie_graph(query, n=n)
     if not center:

@@ -39,8 +39,15 @@ body {
 .top {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 12px;
+    row-gap: 12px;
     margin-bottom: 12px;
+}
+
+.message-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
 }
 
 h1 {
@@ -246,4 +253,52 @@ h1 {
 
 .meta-info{
     flex:1;
+}
+
+.engine-btn {
+    margin-left: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(2, 7, 15, 0.8);
+    color: var(--accent-2);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 4px 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.engine-btn:hover {
+    background: rgba(87, 179, 255, 0.12);
+    border-color: var(--accent-2);
+}
+
+.engine-btn.active-2d {
+    border-color: var(--accent-2);
+}
+
+.engine-btn.active-2d:hover {
+    background: rgba(56, 224, 184, 0.12);
+}
+
+#n-select {
+    margin-left: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(2, 7, 15, 0.8);
+    color: var(--accent-2);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 4px 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+#n-select:focus {
+    border-color: var(--accent-2);
+    box-shadow: 0 0 0 2px rgba(87, 179, 255, 0.18);
 }
