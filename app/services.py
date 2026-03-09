@@ -1,5 +1,5 @@
 from app import df, coords, tree
-from app.utils import find_movie_match, scale_vectors
+from app.utils import find_movie_match, scale_vectors, fetch_poster
 import numpy as np
 import pandas as pd
 

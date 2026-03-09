@@ -1,3 +1,5 @@
+import { fetchPoster } from './utils.js';
+
 const input = document.getElementById('search-input');
 const button = document.getElementById('search-btn');
 const acList = document.getElementById('autocomplete-list');
@@ -93,11 +95,29 @@ function setMeta(movie, prefix) {
     const rankLine = Number.isFinite(movie.rank) ? ` | rank ${movie.rank}` : '';
 
     meta.innerHTML = `
-        <div class="meta-title">${escHtml(prefix)} ${escHtml(movie.title)}</div>
-        <div class="meta-sub"><span class="chip">${escHtml(movie.genre || 'Unknown')}</span>Score ${score} | ${escHtml(year)}${distLine}${rankLine}</div>
-        <div class="meta-sub">true rel xyz: (${cx}, ${cy}, ${cz}) | render scale x${WORLD_SCALE}</div>
-        <div class="meta-sub">${escHtml(overview || 'No overview available.')}${(movie.overview || '').length > 500 ? '...' : ''}</div>
+        <div class="meta-container">
+
+            <div class="meta-poster">
+                <img id="meta-poster-img" src="/static/images/no_poster.png"/>
+            </div>
+
+            <div class="meta-info">
+                <div class="meta-title">${escHtml(prefix)} ${escHtml(movie.title)}</div>
+                <div class="meta-sub"><span class="chip">${escHtml(movie.genre || 'Unknown')}</span>Score ${score} | ${escHtml(year)}${distLine}${rankLine}</div>
+                <div class="meta-sub">true rel xyz: (${cx}, ${cy}, ${cz}) | render scale x${WORLD_SCALE}</div>
+                <div class="meta-sub">${escHtml(overview || 'No overview available.')}${(movie.overview || '').length > 500 ? '...' : ''}</div>
+            </div>
+        </div>
     `;
+
+    fetchPoster(movie.title).then((poster) => {
+        if (!poster) return;
+
+        const img = document.getElementById("meta-poster-img");
+        if (img) {
+            img.src = poster;
+        }
+    });
 }
 
 function createFallbackEngine(onNodeClick) {

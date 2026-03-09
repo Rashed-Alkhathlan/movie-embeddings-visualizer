@@ -33,6 +33,7 @@ body {
     max-width: 1200px;
     margin: 0 auto;
     padding: 22px 16px 20px;
+    padding-bottom: 200px;
 }
 
 .top {
@@ -229,4 +230,20 @@ h1 {
     #space {
         height: 62vh;
     }
+}
+
+.meta-container{
+    display:flex;
+    gap:18px;
+    align-items:flex-start;
+}
+
+.meta-poster img{
+    width:120px;
+    border-radius:8px;
+    box-shadow:0 6px 18px rgba(0,0,0,0.45);
+}
+
+.meta-info{
+    flex:1;
 }
