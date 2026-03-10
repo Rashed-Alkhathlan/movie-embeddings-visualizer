@@ -362,8 +362,8 @@ function createFallbackEngine(onNodeClick) {
     };
 }
 
-// throw new Error('CDN blocked'); // Force fallback for testing
 async function createThreeEngine(onNodeClick) {
+    // throw new Error('CDN blocked'); // Force fallback for testing
     clearSpaceElement();
     const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js');
     const { OrbitControls } = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/controls/OrbitControls.js');
