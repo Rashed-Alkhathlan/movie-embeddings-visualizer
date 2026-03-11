@@ -1,13 +1,17 @@
 from flask import request, jsonify, render_template
-from app import app
+from app import app, bot
 from app.services import get_closest_movies, get_movie_graph, get_autocomplete_suggestions
 
-@app.route("/")
+@app.get("/")
 def index():
     return render_template("index.html")
 
+@app.get("/chat")            # new GET route for the page
+def chat_page():
+    return render_template("chat.html")
 
-@app.route("/search")
+
+@app.get("/search")
 def search():
     query = request.args.get("q", "").strip()
     if not query:
@@ -23,13 +27,13 @@ def search():
     })
 
 
-@app.route("/autocomplete")
+@app.get("/autocomplete")
 def autocomplete():
     query = request.args.get("q", "").strip()
     return jsonify(get_autocomplete_suggestions(query))
 
 
-@app.route("/graph")
+@app.get("/graph")
 def graph():
     query = request.args.get("q", "").strip()
     if not query:
@@ -50,3 +54,10 @@ def graph():
         "center": center,
         "neighbors": neighbors
     })
+
+
+@app.post("/api/chat")
+def chat_bot():
+    user_message = request.get_json().get("message", "")
+    reply = bot.ask(user_message)
+    return jsonify({"reply": reply})

@@ -1,4 +1,5 @@
-"""Reusable scraping helper functions for MCP tools.
+"""
+Reusable scraping helper functions for MCP tools.
 
 This module is intentionally framework-agnostic: import and call these
 functions directly from your own MCP tool definitions.
