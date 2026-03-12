@@ -2,8 +2,6 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import Any
-import warnings
-warnings.filterwarnings('ignore')
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
@@ -13,6 +11,7 @@ from langchain_mistralai import ChatMistralAI
 from langchain_mcp_adapters import client
 
 class MCPChatbot:
+
     def __init__(self, agent: Any, mcp_client: client.MultiServerMCPClient) -> None:
         self.agent = agent
         self.mcp_client = mcp_client  # Keep a reference so MCP servers stay alive.
@@ -41,6 +40,7 @@ async def build_chatbot(
     temperature: float = 0.7,
     enable_tools: bool = True,
 ) -> MCPChatbot:
+    
     load_dotenv()
     base_dir = Path(__file__).resolve().parent.parent
     mcp_dir = base_dir / "mcps"
@@ -54,6 +54,7 @@ async def build_chatbot(
             }
         }
     )
+
     if "gemma" in model_name:
         llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
     elif "command" in model_name:
@@ -70,19 +71,17 @@ async def build_chatbot(
     return MCPChatbot(agent=agent, mcp_client=mcp_client)
 
 
-async def main() -> None:
-    chatbot = await build_chatbot(model_name="command-a-03-2025") 
-    print("Chatbot is ready! Type 'exit' to quit.")
-    
+def create_chatbot() -> MCPChatbot:
+    return asyncio.run(build_chatbot(model_name="command-a-03-2025"))
+
+
+# For testing purposes, you can run this file directly to interact with the chatbot in the console.
+if __name__ == "__main__":
+    chatbot = create_chatbot()
+    print("Chatbot is ready! Type your messages below (type 'exit' to quit).")
     while True:
         user_input = input("You: ")
         if user_input.lower() == "exit":
             break
-            
-        # Await the new async chat method
-        response = await chatbot.ask(user_input) 
-        print(f"Chatbot: {response}")
-
-if __name__ == "__main__":
-    print("Initializing chatbot...")
-    asyncio.run(main())
+        response = asyncio.run(chatbot.ask(user_input))
+        print(f"Bot: {response}")
