@@ -2,12 +2,15 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import Any
+import warnings
+warnings.filterwarnings('ignore')
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_cohere import ChatCohere 
+from langchain_mistralai import ChatMistralAI
 from langchain_mcp_adapters import client
-
 
 class MCPChatbot:
     def __init__(self, agent: Any, mcp_client: client.MultiServerMCPClient) -> None:
@@ -15,11 +18,11 @@ class MCPChatbot:
         self.mcp_client = mcp_client  # Keep a reference so MCP servers stay alive.
         self.history: list[dict[str, str]] = []
 
-    def ask(self, text: str, keep_history: bool = True) -> str:
+    async def ask(self, text: str, keep_history: bool = True) -> str:
         messages = list(self.history) if keep_history else []
         messages.append({"role": "user", "content": text})
 
-        result = self.agent.invoke({"messages": messages})
+        result = await self.agent.ainvoke({"messages": messages})
         result_messages = result.get("messages", []) if isinstance(result, dict) else []
         answer = result_messages[-1].content if result_messages else str(result)
 
@@ -36,7 +39,7 @@ class MCPChatbot:
 async def build_chatbot(
     model_name: str = "gemma-3-27b-it",
     temperature: float = 0.7,
-    enable_tools: bool = False,
+    enable_tools: bool = True,
 ) -> MCPChatbot:
     load_dotenv()
     base_dir = Path(__file__).resolve().parent.parent
@@ -51,8 +54,13 @@ async def build_chatbot(
             }
         }
     )
+    if "gemma" in model_name:
+        llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
+    elif "command" in model_name:
+        llm = ChatCohere(model=model_name, temperature=temperature) # best is "command-a-03-2025"
+    elif "mistral" in model_name:
+        llm = ChatMistralAI(model=model_name, temperature=temperature)
 
-    llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
     if enable_tools:
         tools = await mcp_client.get_tools()
         agent = create_agent(llm, tools=tools)
@@ -62,9 +70,19 @@ async def build_chatbot(
     return MCPChatbot(agent=agent, mcp_client=mcp_client)
 
 
-def create_chatbot(
-    model_name: str = "gemma-3-27b-it",
-    temperature: float = 0.7,
-    enable_tools: bool = False,
-) -> MCPChatbot:
-    return asyncio.run(build_chatbot(model_name=model_name, temperature=temperature, enable_tools=enable_tools))
+async def main() -> None:
+    chatbot = await build_chatbot(model_name="command-a-03-2025") 
+    print("Chatbot is ready! Type 'exit' to quit.")
+    
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() == "exit":
+            break
+            
+        # Await the new async chat method
+        response = await chatbot.ask(user_input) 
+        print(f"Chatbot: {response}")
+
+if __name__ == "__main__":
+    print("Initializing chatbot...")
+    asyncio.run(main())
