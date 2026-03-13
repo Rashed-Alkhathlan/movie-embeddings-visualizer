@@ -110,8 +110,13 @@ def _keywords(text: str, limit: int = 8) -> list[str]:
 
 
 @mcp.tool()
-def search_web(query: str, max_results: int = 8) -> dict[str, Any]:
-    """Search the web and return organized, source-attributed result items."""
+def web_search(query: str, max_results: int = 8) -> dict[str, Any]:
+    """Search the web and return a ranked list of result links.
+
+    Use this tool when you need to discover relevant webpages for a query.
+    This tool only returns search results (titles, URLs, snippets) and does NOT fetch page content.
+    If you need the contents of a webpage, use get_web_page_info instead.
+    """
     raw = duckduckgo_search(query, max_results=max_results)
     results: list[dict[str, Any]] = []
 
@@ -136,8 +141,15 @@ def search_web(query: str, max_results: int = 8) -> dict[str, Any]:
 
 
 @mcp.tool()
-def get_web_page_info(url: str, max_text_chars: int = 3000) -> dict[str, Any]:
-    """Fetch a page and return extracted text, metadata, links, and source info."""
+def fetch_web_page(url: str, max_text_chars: int = 3000) -> dict[str, Any]:
+    """Fetch and analyze a single webpage by URL.
+
+    Use this tool when you already have a webpage URL and need its contents.
+    Returns extracted text, metadata, important sentences, and outgoing links.
+
+    Input must be a valid webpage URL.
+    Do NOT pass search queries to this tool.
+    """
     
     normalized_url = _unwrap_duckduckgo_redirect(url)
 
@@ -171,14 +183,25 @@ def get_web_page_info(url: str, max_text_chars: int = 3000) -> dict[str, Any]:
 
 @mcp.tool()
 def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 2200) -> dict[str, Any]:
-    """Research a topic from multiple web sources and return organized findings with citations."""
-    search = search_web(query, max_results=max_sources)
+    """Perform full web research on a topic.
+
+    This tool automatically:
+    1. Searches the web for relevant pages
+    2. Fetches multiple pages
+    3. Extracts text and key highlights
+    4. Produces summarized key points with citations.
+
+    Use this tool when the user asks for a researched explanation or summary of a topic.
+
+    Do NOT use this tool if you only need search results or a single webpage.
+    """
+    search = web_search(query, max_results=max_sources)
     sources: list[dict[str, Any]] = []
     combined_text_parts: list[str] = []
 
     for item in search.get("results", [])[: max_sources]:
         try:
-            page = get_web_page_info(item["url"], max_text_chars=per_source_chars)
+            page = fetch_web_page(item["url"], max_text_chars=per_source_chars)
             text = page.get("text", "")
             combined_text_parts.append(text)
             sources.append(
@@ -220,8 +243,13 @@ def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 220
 
 
 @mcp.tool()
-def research_multiple_queries(queries: list[str], max_sources_per_query: int = 4) -> dict[str, Any]:
-    """Run multi-query web research and return organized results by query."""
+def research_multiple_topics(queries: list[str], max_sources_per_query: int = 4) -> dict[str, Any]:
+    """Research multiple topics or questions at once.
+
+    Runs research_topic separately for each query and returns results grouped by query.
+
+    Use this tool when the user asks about several different topics or questions in one request.
+    """
     outputs: list[dict[str, Any]] = []
     for q in queries:
         outputs.append(research_topic(q, max_sources=max_sources_per_query))
@@ -236,8 +264,8 @@ def research_multiple_queries(queries: list[str], max_sources_per_query: int = 4
 # It can be invoked with the --smoke-test flag when running this script directly.
 
 def _smoke_test() -> None:
-    print("[smoke] search_web('latest ai model benchmarks')")
-    search = search_web("latest ai model benchmarks", max_results=5)
+    print("[smoke] web_search('latest ai model benchmarks')")
+    search = web_search("latest ai model benchmarks", max_results=5)
     print(f"  count={search.get('count')}")
 
     results = search.get("results", [])
@@ -246,8 +274,8 @@ def _smoke_test() -> None:
         print(f"  first_title={str(first.get('title', ''))[:100]}")
         print(f"  first_url={first.get('url')}")
 
-        print("[smoke] get_web_page_info(first_url)")
-        page = get_web_page_info(first["url"], max_text_chars=1200)
+        print("[smoke] fetch_web_page(first_url)")
+        page = fetch_web_page(first["url"], max_text_chars=1200)
         print(f"  page_domain={page.get('domain')}")
         print(f"  highlights_count={len(page.get('highlights', []))}")
 
@@ -256,8 +284,8 @@ def _smoke_test() -> None:
     print(f"  source_count={research.get('source_count')}")
     print(f"  key_points={len(research.get('summary', {}).get('key_points', []))}")
 
-    print("[smoke] research_multiple_queries([...])")
-    multi = research_multiple_queries(["python web scraping", "mcp protocol"], max_sources_per_query=2)
+    print("[smoke] research_multiple_topics([...])")
+    multi = research_multiple_topics(["python web scraping", "mcp protocol"], max_sources_per_query=2)
     print(f"  multi_count={multi.get('count')}")
     print("[smoke] done")
 
