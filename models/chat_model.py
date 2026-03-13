@@ -10,6 +10,20 @@ from langchain_cohere import ChatCohere
 from langchain_mistralai import ChatMistralAI
 from langchain_mcp_adapters import client
 
+def print_agent_trace(result):
+    for msg in result["messages"]:
+        role = type(msg).__name__
+
+        print(f"\n[{role}]")
+
+        if getattr(msg, "tool_calls", None):
+            for tool in msg.tool_calls:
+                print("TOOL:", tool["name"])
+                print("ARGS:", tool["args"])
+
+        if getattr(msg, "content", None):
+            print(msg.content)
+
 class MCPChatbot:
 
     def __init__(self, agent: Any, mcp_client: client.MultiServerMCPClient) -> None:
@@ -22,8 +36,14 @@ class MCPChatbot:
         messages.append({"role": "user", "content": text})
 
         result = await self.agent.ainvoke({"messages": messages})
+
+        print_agent_trace(result)
+
         result_messages = result.get("messages", []) if isinstance(result, dict) else []
         answer = result_messages[-1].content if result_messages else str(result)
+
+        if isinstance(answer, list):
+            answer = answer[0].get("text", str(answer))
 
         if keep_history:
             self.history.append({"role": "user", "content": text})
@@ -55,7 +75,7 @@ async def build_chatbot(
         }
     )
 
-    if "gemma" in model_name:
+    if "gemma" in model_name or "gemini" in model_name:
         llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
     elif "command" in model_name:
         llm = ChatCohere(model=model_name, temperature=temperature) # best is "command-a-03-2025"
@@ -72,7 +92,7 @@ async def build_chatbot(
 
 
 def create_chatbot() -> MCPChatbot:
-    return asyncio.run(build_chatbot(model_name="command-a-03-2025"))
+    return asyncio.run(build_chatbot(model_name="gemini-3.1-flash-lite-preview"))
 
 
 # For testing purposes, you can run this file directly to interact with the chatbot in the console.

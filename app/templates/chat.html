@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Movie Assistant · Movie Orbit</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne+Mono&display=swap" rel="stylesheet" />
@@ -248,6 +249,15 @@
             line-height: 1.6;
             position: relative;
             word-break: break-word;
+        }
+
+        .msg-bubble ul, .msg-bubble ol {
+            margin: 0;          /* Remove default margin */
+            padding-left: 20px; /* Optional: keep indentation inside the bubble */
+        }
+
+        .msg-bubble li {
+            margin: 4px 0;      /* Space between items */
         }
         .msg-row.bot .msg-bubble {
             background: var(--bot-bg);
@@ -591,13 +601,20 @@
     sendBtn.addEventListener('click', sendMessage);
 
     /* Clear */
-    clearBtn.addEventListener('click', () => {
-        messagesEl.innerHTML = '';
-        msgCount = 0;
-        updateMsgCount();
-        appendDateSep('Cleared');
-        appendBotMsg('History cleared. Ask me anything about movies!');
-    });
+    clearBtn.addEventListener('click', clear_history);
+
+    async function clear_history() {
+        try {
+            await fetch('/api/chat/history', { method: 'DELETE' });
+            messagesEl.innerHTML = '';
+            msgCount = 0;
+            updateMsgCount();
+            appendDateSep('Cleared');
+            appendBotMsg('History cleared. Ask me anything about movies!');
+        } catch (err) {
+            console.error('Failed to clear history:', err);
+        }
+    }
 
     function updateMsgCount() {
         msgCountEl.textContent = msgCount === 0
@@ -632,10 +649,14 @@
         const now = new Date();
         const row = document.createElement('div');
         row.className = 'msg-row bot';
+
+        // Convert Markdown to HTML
+        const html = marked.parse(text);
+
         row.innerHTML = `
             <div class="msg-avatar">AI</div>
             <div class="msg-col">
-                <div class="msg-bubble">${escHtml(text)}</div>
+                <div class="msg-bubble">${html}</div>
                 <div class="msg-time">${formatTime(now)}</div>
             </div>`;
         messagesEl.appendChild(row);

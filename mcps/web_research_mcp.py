@@ -138,20 +138,35 @@ def search_web(query: str, max_results: int = 8) -> dict[str, Any]:
 @mcp.tool()
 def get_web_page_info(url: str, max_text_chars: int = 3000) -> dict[str, Any]:
     """Fetch a page and return extracted text, metadata, links, and source info."""
+    
     normalized_url = _unwrap_duckduckgo_redirect(url)
-    data = scrape_url(normalized_url)
-    text = _clean_text(data.get("main_text", ""))
-    if max_text_chars > 0:
-        text = text[:max_text_chars]
 
-    return {
-        "url": data.get("url", normalized_url),
-        "domain": _domain(normalized_url),
-        "metadata": data.get("metadata", {}),
-        "text": text,
-        "highlights": _sentences(text, limit=4),
-        "links": data.get("links", [])[:30],
-    }
+    try:
+        data = scrape_url(normalized_url)
+
+        text = _clean_text(data.get("main_text", ""))
+        if max_text_chars > 0:
+            text = text[:max_text_chars]
+
+        return {
+            "success": True,
+            "url": data.get("url", normalized_url),
+            "domain": _domain(normalized_url),
+            "metadata": data.get("metadata", {}),
+            "text": text,
+            "highlights": _sentences(text, limit=4),
+            "links": data.get("links", [])[:30],
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "url": normalized_url,
+            "error": str(e),
+            "text": "",
+            "highlights": [],
+            "links": [],
+        }
 
 
 @mcp.tool()
@@ -217,6 +232,8 @@ def research_multiple_queries(queries: list[str], max_sources_per_query: int = 4
         "results": outputs,
     }
 
+# Note: The following smoke test is designed to run without the full MCP environment, allowing for quick local testing of the core functionality. 
+# It can be invoked with the --smoke-test flag when running this script directly.
 
 def _smoke_test() -> None:
     print("[smoke] search_web('latest ai model benchmarks')")

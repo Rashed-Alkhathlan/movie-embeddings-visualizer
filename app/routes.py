@@ -1,3 +1,5 @@
+import asyncio
+
 from flask import request, jsonify, render_template
 from app import app, bot
 from app.services import get_closest_movies, get_movie_graph, get_autocomplete_suggestions
@@ -59,5 +61,11 @@ def graph():
 @app.post("/api/chat")
 def chat_bot():
     user_message = request.get_json().get("message", "")
-    reply = bot.ask(user_message)
+    reply = asyncio.run(bot.ask(user_message))
     return jsonify({"reply": reply})
+
+
+@app.delete("/api/chat/history")
+def clear_chat_history():
+    bot.reset()
+    return jsonify({"status": "success", "message": "Chat history cleared."})

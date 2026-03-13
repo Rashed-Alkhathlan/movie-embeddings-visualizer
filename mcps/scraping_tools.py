@@ -16,6 +16,8 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from ddgs import DDGS
+
 
 DEFAULT_USER_AGENT = (
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -184,38 +186,21 @@ def extract_main_text(soup: BeautifulSoup) -> str:
 	return soup.get_text(" ", strip=True)
 
 
-def duckduckgo_search(
-	query: str,
-	*,
-	max_results: int = 10,
-	session: requests.Session | None = None,
-	timeout: float = 20.0,
-) -> list[ScrapeResult]:
-	"""Search DuckDuckGo HTML and return normalized result items."""
-	close_after = session is None
-	active_session = session or build_session()
-	try:
-		search_url = "https://html.duckduckgo.com/html/"
-		response = _safe_get(active_session, search_url, timeout=timeout, params={"q": query})
-		soup = BeautifulSoup(response.text, "html.parser")
-		results: list[ScrapeResult] = []
-		for block in soup.select(".result"):
-			link_node = block.select_one("a.result__a")
-			if not link_node:
-				continue
+def duckduckgo_search(query: str, *, max_results: int = 10) -> list[ScrapeResult]:
+    results = []
 
-			title = link_node.get_text(" ", strip=True)
-			url = link_node.get("href", "").strip()
-			snippet_node = block.select_one(".result__snippet")
-			snippet = snippet_node.get_text(" ", strip=True) if snippet_node else ""
-			if title and url:
-				results.append(ScrapeResult(source="duckduckgo", title=title, url=url, snippet=snippet))
-			if len(results) >= max_results:
-				break
-		return results
-	finally:
-		if close_after:
-			active_session.close()
+    with DDGS() as ddgs:
+        for r in ddgs.text(query, max_results=max_results):
+            results.append(
+                ScrapeResult(
+                    source="duckduckgo",
+                    title=r.get("title", ""),
+                    url=r.get("href", ""),
+                    snippet=r.get("body", "")
+                )
+            )
+
+    return results
 
 
 def wikipedia_summary(
