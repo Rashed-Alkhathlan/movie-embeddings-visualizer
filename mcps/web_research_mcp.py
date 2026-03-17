@@ -115,7 +115,7 @@ def web_search(query: str, max_results: int = 8) -> dict[str, Any]:
 
     Use this tool when you need to discover relevant webpages for a query.
     This tool only returns search results (titles, URLs, snippets) and does NOT fetch page content.
-    If you need the contents of a webpage, use get_web_page_info instead.
+    If you need the contents of a webpage, use fetch_web_page instead.
     """
     raw = duckduckgo_search(query, max_results=max_results)
     results: list[dict[str, Any]] = []
