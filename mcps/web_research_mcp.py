@@ -206,7 +206,7 @@ def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 220
             combined_text_parts.append(text)
             sources.append(
                 {
-                    "id": f"S{item['rank']}",
+                    "id": f"{item['rank']}",
                     "title": item["title"],
                     "url": item["url"],
                     "domain": item["domain"],
@@ -218,7 +218,7 @@ def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 220
         except Exception as exc:
             sources.append(
                 {
-                    "id": f"S{item['rank']}",
+                    "id": f"{item['rank']}",
                     "title": item["title"],
                     "url": item["url"],
                     "domain": item["domain"],

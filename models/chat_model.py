@@ -2,6 +2,7 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import Any
+import json
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
@@ -22,7 +23,19 @@ def print_agent_trace(result):
                 print("ARGS:", tool["args"])
 
         if getattr(msg, "content", None):
-            print(msg.content)
+            content = msg.content
+            if isinstance(content, str):
+                print(content)
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and "text" in item:
+                        text = item["text"]
+
+                        try:
+                            parsed = json.loads(text)
+                            print(json.dumps(parsed, indent=2))
+                        except:
+                            print(text)
 
 class MCPChatbot:
 
