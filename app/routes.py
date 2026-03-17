@@ -1,6 +1,8 @@
 import asyncio
-
-from flask import request, jsonify, render_template
+import json
+import queue
+import threading
+from flask import request, jsonify, render_template, Response, stream_with_context
 from app import app, bot
 from app.services import get_closest_movies, get_movie_graph, get_autocomplete_suggestions
 
@@ -57,12 +59,48 @@ def graph():
         "neighbors": neighbors
     })
 
+bot_lock = threading.Lock()
 
 @app.post("/api/chat")
 def chat_bot():
     user_message = request.get_json().get("message", "")
-    reply = asyncio.run(bot.ask(user_message))
-    return jsonify({"reply": reply})
+
+    # Reject immediately if bot is busy
+    if not bot_lock.acquire(blocking=False):
+        return jsonify({
+            "type": "error",
+            "data": "The assistant is currently processing another request. Please wait."
+        }), 429
+
+    def generate():
+        try:
+            result_queue = queue.Queue()
+
+            def run_stream():
+                async def _run():
+                    async for event_type, data in bot.ask_stream(user_message):
+                        result_queue.put((event_type, data))
+                asyncio.run(_run())
+
+            threading.Thread(target=run_stream, daemon=True).start()
+
+            while True:
+                try:
+                    event_type, data = result_queue.get(timeout=300)
+                    yield f"data: {json.dumps({'type': event_type, 'data': data})}\n\n"
+                    if event_type in ("reply", "error"):
+                        break
+                except queue.Empty:
+                    yield f"data: {json.dumps({'type': 'error', 'data': 'Request timed out.'})}\n\n"
+                    break
+        finally:
+            bot_lock.release()  # always release, even if something crashes
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.delete("/api/chat/history")

@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp import FastMCP # type: ignore
 except ModuleNotFoundError:
     class FastMCP:  # type: ignore[override]
         """Minimal fallback to allow local smoke tests without mcp package."""
