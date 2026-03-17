@@ -238,7 +238,7 @@ def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 220
             "top_keywords": _keywords(combined_text, limit=10),
         },
         "sources": sources,
-        "citation_guide": "Cite with source ids like S1, S2, S3.",
+        "citation_guide": "Cite with source ids like [1], [2], [3].",
     }
 
 
