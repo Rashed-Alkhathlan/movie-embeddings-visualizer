@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp import FastMCP # type: ignore
 except ModuleNotFoundError:
     class FastMCP:  # type: ignore[override]
         """Minimal fallback to allow local smoke tests without mcp package."""
@@ -115,7 +115,7 @@ def web_search(query: str, max_results: int = 8) -> dict[str, Any]:
 
     Use this tool when you need to discover relevant webpages for a query.
     This tool only returns search results (titles, URLs, snippets) and does NOT fetch page content.
-    If you need the contents of a webpage, use get_web_page_info instead.
+    If you need the contents of a webpage, use fetch_web_page instead.
     """
     raw = duckduckgo_search(query, max_results=max_results)
     results: list[dict[str, Any]] = []
@@ -206,7 +206,7 @@ def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 220
             combined_text_parts.append(text)
             sources.append(
                 {
-                    "id": f"S{item['rank']}",
+                    "id": f"{item['rank']}",
                     "title": item["title"],
                     "url": item["url"],
                     "domain": item["domain"],
@@ -218,7 +218,7 @@ def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 220
         except Exception as exc:
             sources.append(
                 {
-                    "id": f"S{item['rank']}",
+                    "id": f"{item['rank']}",
                     "title": item["title"],
                     "url": item["url"],
                     "domain": item["domain"],
@@ -238,7 +238,7 @@ def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 220
             "top_keywords": _keywords(combined_text, limit=10),
         },
         "sources": sources,
-        "citation_guide": "Cite with source ids like S1, S2, S3.",
+        "citation_guide": "Cite with source ids like [1], [2], [3].",
     }
 
 
