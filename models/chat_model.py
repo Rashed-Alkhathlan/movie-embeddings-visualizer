@@ -8,6 +8,7 @@ from langchain.agents import create_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_cohere import ChatCohere 
 from langchain_mistralai import ChatMistralAI
+from langchain_cerebras import ChatCerebras
 from langchain_mcp_adapters import client
 
 def print_agent_trace(result):
@@ -81,7 +82,8 @@ async def build_chatbot(
         llm = ChatCohere(model=model_name, temperature=temperature) # best is "command-a-03-2025"
     elif "mistral" in model_name:
         llm = ChatMistralAI(model=model_name, temperature=temperature)
-
+    elif "cerebras" in model_name or "qween" in model_name or "llama" in model_name: # fix later cuz logic is bad
+        llm = ChatCerebras(model=model_name, temperature=temperature)
     if enable_tools:
         tools = await mcp_client.get_tools()
         agent = create_agent(llm, tools=tools)
@@ -92,7 +94,7 @@ async def build_chatbot(
 
 
 def create_chatbot() -> MCPChatbot:
-    return asyncio.run(build_chatbot(model_name="gemini-3.1-flash-lite-preview"))
+    return asyncio.run(build_chatbot(model_name="llama3.1-8b"))
 
 
 # For testing purposes, you can run this file directly to interact with the chatbot in the console.
