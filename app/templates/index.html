@@ -23,23 +23,7 @@
         <section class="top">
             <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
                 <h1>Movie Orbit 3D</h1>
-                <a href="/chat" style="
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 7px;
-                    text-decoration: none;
-                    color: #38e0b8;
-                    font-size: 13px;
-                    font-weight: 600;
-                    letter-spacing: 0.06em;
-                    text-transform: uppercase;
-                    border: 1px solid rgba(56,224,184,0.3);
-                    border-radius: 8px;
-                    padding: 7px 14px;
-                    background: rgba(56,224,184,0.07);
-                    transition: background 0.2s, border-color 0.2s;
-                " onmouseover="this.style.background='rgba(56,224,184,0.14)';this.style.borderColor='rgba(56,224,184,0.55)'"
-                   onmouseout="this.style.background='rgba(56,224,184,0.07)';this.style.borderColor='rgba(56,224,184,0.3)'">
+                <a href="/chat" class="chat-link">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h3l3 3 3-3h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-2 9H6V9h12v2zm0-4H6V5h12v2z"/></svg>
                     Movie Assistant
                 </a>
@@ -85,10 +69,7 @@
 
     <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
     <!-- Chatbot widget -->
-    <script type="module">
-        import { initChat } from "{{ url_for('static', filename='js/chat.js') }}";
-        initChat();
-    </script>
+    <script type="module" src="{{ url_for('static', filename='js/chat_widget.js') }}"></script>
 </body>
 
 </html>

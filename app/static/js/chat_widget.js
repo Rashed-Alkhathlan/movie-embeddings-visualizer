@@ -90,15 +90,56 @@ export function initChat() {
     }
 
     /* ── Send ──────────────────────────────────────────────────────── */
+    function setTypingStatus(typingRow, statusText) {
+        // Update the typing indicator to show a status message
+        const bubble = typingRow.querySelector('.typing-bubble') 
+                    || typingRow.querySelector('.status-bubble');
+        
+        const html = marked.parse(
+            typeof statusText === "string" ? statusText : ""
+        );
+
+        console.log(statusText);
+        console.log(html);
+        
+        if (html) {
+            typingRow.innerHTML = `
+                <div class="msg-avatar">AI</div>
+                <div class="status-bubble">
+                    <div class="status-spinner"></div>
+                    <span class="status-text">${html}</span>
+                </div>`;
+        } else {
+            // Revert to plain typing dots
+            typingRow.innerHTML = `
+                <div class="msg-avatar">AI</div>
+                <div class="typing-bubble">
+                    <span></span><span></span><span></span>
+                </div>`;
+        }
+        scroll();
+    }
+
+    function setInputLocked(locked) {
+        chatInput.disabled = locked;
+        sendBtn.disabled = locked;
+        chatInput.style.opacity = locked ? '0.4' : '1';
+        chatInput.placeholder = locked 
+            ? 'Waiting for response…' 
+            : 'Ask me anything about movies…';
+    }
+
     async function send() {
         const text = chatInput.value.trim();
         if (!text) return;
 
         chatInput.value = '';
+        chatInput.style.height = 'auto';
         sendBtn.disabled = true;
-        appendMsg(text, 'user');
 
-        const typingEl = showTyping();
+        appendMsg(text, 'user');
+        const typingRow = showTyping();
+        setInputLocked(true);           // lock
 
         try {
             const res = await fetch('/api/chat', {
@@ -106,15 +147,52 @@ export function initChat() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: text }),
             });
-            const data = await res.json();
-            typingEl.remove();
-            appendMsg(data.reply || 'No response received.', 'bot');
+
+            // Handle busy state before reading the stream
+            if (res.status === 429) {
+                typingRow.remove();
+                appendMsg('⏳ The assistant is busy with another request. Please wait a moment and try again.', 'bot');
+                return;
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete last line
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    
+                    let event;
+                    try { event = JSON.parse(line.slice(6)); } 
+                    catch { continue; }
+
+                    if (event.type === 'status') {
+                        setTypingStatus(typingRow, event.data);
+                    } else if (event.type === 'status_clear') {
+                        setTypingStatus(typingRow, null);
+                    } else if (event.type === 'reply') {
+                        typingRow.remove();
+                        appendMsg(event.data || 'No response received.', 'bot');
+                    } else if (event.type === 'error') {
+                        typingRow.remove();
+                        appendMsg('⚠ ' + event.data, 'bot');
+                    }
+                }
+            }
         } catch (_err) {
-            typingEl.remove();
-            appendMsg('⚠ Could not reach the server. Please try again.', 'bot');
+            console.log(_err.message);
+            typingRow.remove();
+            appendMsg('⚠ Could not reach the server. Please check your connection.', 'bot');
         } finally {
-            sendBtn.disabled = false;
-            chatInput.focus();
+            setInputLocked(false);      // always unlock
         }
     }
 
@@ -126,3 +204,5 @@ export function initChat() {
         }
     });
 }
+
+initChat();

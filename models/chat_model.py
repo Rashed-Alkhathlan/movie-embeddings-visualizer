@@ -162,7 +162,7 @@ async def build_chatbot(
 
 
 def create_chatbot() -> MCPChatbot:
-    return asyncio.run(build_chatbot(model_name="gemini-3.1-flash-lite-preview"))
+    return asyncio.run(build_chatbot(model_name="command-a-03-2025"))
 
 
 # For testing purposes, you can run this file directly to interact with the chatbot in the console.
