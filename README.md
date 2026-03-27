@@ -50,7 +50,7 @@ The server will start on <http://localhost:5000/>
 
 3 - `conda activate ml_proj`
 
-4 - `pip install -r requirements.txt`
+4 - `pip install -r requirements_mac.txt`
 
 5 - `python run.py`
 
