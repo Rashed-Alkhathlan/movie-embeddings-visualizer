@@ -1,4 +1,4 @@
-import { fetchPoster, escHtml } from './utils.js';
+import { fetchPoster, escHtml } from '../utils.js';
 
 const input = document.getElementById('search-input');
 const button = document.getElementById('search-btn');
@@ -365,9 +365,9 @@ function createFallbackEngine(onNodeClick) {
 async function createThreeEngine(onNodeClick) {
     // throw new Error('CDN blocked'); // Force fallback for testing
     clearSpaceElement();
-    const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js');
-    const { OrbitControls } = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/controls/OrbitControls.js');
-    const { CSS2DRenderer, CSS2DObject } = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/renderers/CSS2DRenderer.js');
+    const THREE = await import('three');
+    const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
+    const { CSS2DRenderer, CSS2DObject } = await import('three/addons/renderers/CSS2DRenderer.js');
 
     let hoveredMesh = null;
     const state = { objectsById: new Map(), centerId: null, pendingCenterId: null, animLines: [], transition: null };
@@ -864,7 +864,7 @@ async function initEngine(mode) {
     if (lastPayload) {
         await engine.applyGraph(lastPayload, false);
     } else {
-        performSearch('Creed III', false);
+        performSearch('The Avengers', false);
     }
 }
 

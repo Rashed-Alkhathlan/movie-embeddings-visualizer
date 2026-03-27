@@ -11,6 +11,14 @@ from langchain_cohere import ChatCohere
 from langchain_mistralai import ChatMistralAI
 from langchain_mcp_adapters import client
 
+# Avalible LLM models                                               PS: Update list when adding a new one
+# Used for frontend model switching and fallbacks
+AVAILABLE_MODELS = [
+    {"id": "gemini-3.1-flash-lite-preview", "label": "Gemini 3.1 Flash Lite Preview",   "provider": "Google"},
+    {"id": "command-a-03-2025",             "label": "Command A",                       "provider": "Cohere"},
+]
+
+
 def print_agent_trace(result: Any) -> None:
     for msg in result["messages"]:
         role = type(msg).__name__
@@ -39,10 +47,12 @@ def print_agent_trace(result: Any) -> None:
 
 class MCPChatbot:
 
-    def __init__(self, agent: Any, mcp_client: client.MultiServerMCPClient) -> None:
+    def __init__(self, agent: Any, mcp_client: client.MultiServerMCPClient, model_name: str = "") -> None:
         self.agent = agent
         self.mcp_client = mcp_client  # Keep a reference so MCP servers stay alive.
         self.history: list[dict[str, str]] = []
+        self.current_model = model_name  # track active model
+
 
     async def ask(self, text: str, keep_history: bool = True) -> str:
         messages = list(self.history) if keep_history else []
@@ -64,24 +74,31 @@ class MCPChatbot:
 
         return answer
     
+    
     async def ask_stream(self, text: str, keep_history: bool = True):
         messages = list(self.history) if keep_history else []
         messages.append({"role": "user", "content": text})
 
         final_answer = ""
-        collected_messages = []  # for tracing
+        collected_messages = []
+        tool_active = False
 
         async for event in self.agent.astream_events({"messages": messages}, version="v2"):
             kind = event.get("event")
 
             if kind == "on_chain_end" and event.get("name") == "LangGraph":
-                # Final graph output contains the full message list — grab it once
                 output = event.get("data", {}).get("output", {})
                 collected_messages = output.get("messages", [])
 
             elif kind == "on_tool_start":
+                tool_active = True
                 tool_name = event.get("name", "tool")
                 tool_input = event.get("data", {}).get("input", {})
+
+                # Reset any narration tokens that leaked through before this tool call
+                if final_answer:
+                    final_answer = ""
+                    yield ("tokens_reset", "")
 
                 if "search" in tool_name.lower():
                     queries = tool_input.get("queries") or tool_input.get("query")
@@ -100,18 +117,26 @@ class MCPChatbot:
                 yield ("status", status)
 
             elif kind == "on_tool_end":
+                tool_active = False
                 yield ("status_clear", "")
 
-            elif kind == "on_chat_model_end":
-                output = event.get("data", {}).get("output")
-                if output:
-                    content = output.content if hasattr(output, "content") else ""
-                    if isinstance(content, str) and content:
-                        final_answer = content
-                    elif isinstance(content, list) and content:
-                        final_answer = content[0].get("text", "")
+            elif kind == "on_chat_model_stream":
 
-        # Trace after the stream is fully consumed
+                if tool_active:
+                    continue
+
+                chunk = event.get("data", {}).get("chunk")
+                if chunk:
+                    content = chunk.content if hasattr(chunk, "content") else ""
+                    if isinstance(content, str) and content:
+                        final_answer += content
+                        yield ("token", content)
+                    elif isinstance(content, list) and content:
+                        token = content[0].get("text", "")
+                        if token:
+                            final_answer += token
+                            yield ("token", token)
+
         if collected_messages:
             print_agent_trace({"messages": collected_messages})
 
@@ -119,14 +144,31 @@ class MCPChatbot:
             self.history.append({"role": "user", "content": text})
             self.history.append({"role": "assistant", "content": final_answer})
 
-        yield ("reply", final_answer)
+        yield ("reply_done", "")
+
+
+    async def switch_model(self, model_name: str, temperature: float = 0.7) -> None:
+        if "gemma" in model_name or "gemini" in model_name:
+            llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
+        elif "command" in model_name:
+            llm = ChatCohere(model=model_name, temperature=temperature)
+        elif "mistral" in model_name or "mixtral" in model_name:
+            llm = ChatMistralAI(model_name=model_name, temperature=temperature)
+        else:
+            raise ValueError(f"Unknown model: {model_name}")
+
+        tools = await self.mcp_client.get_tools()
+        self.agent = create_agent(llm, tools=tools)
+        self.current_model = model_name  # update on switch
+        self.history.clear()
+
 
     def reset(self) -> None:
         self.history.clear()
 
 
 async def build_chatbot(
-    model_name: str = "gemma-3-27b-it",
+    model_name: str = "gemini-3.1-flash-lite-preview",
     temperature: float = 0.7,
     enable_tools: bool = True,
 ) -> MCPChatbot:
@@ -150,7 +192,7 @@ async def build_chatbot(
     elif "command" in model_name:
         llm = ChatCohere(model=model_name, temperature=temperature) # best is "command-a-03-2025"
     elif "mistral" in model_name:
-        llm = ChatMistralAI(name=model_name, temperature=temperature)
+        llm = ChatMistralAI(model_name=model_name, temperature=temperature)
 
     if enable_tools:
         tools = await mcp_client.get_tools()
@@ -158,11 +200,11 @@ async def build_chatbot(
     else:
         agent = create_agent(llm)
 
-    return MCPChatbot(agent=agent, mcp_client=mcp_client)
+    return MCPChatbot(agent=agent, mcp_client=mcp_client, model_name=model_name)
 
 
 def create_chatbot() -> MCPChatbot:
-    return asyncio.run(build_chatbot(model_name="command-a-03-2025"))
+    return asyncio.run(build_chatbot())
 
 
 # For testing purposes, you can run this file directly to interact with the chatbot in the console.

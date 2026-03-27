@@ -2,7 +2,7 @@ from flask import Flask
 from pathlib import Path
 import pandas as pd
 from scipy.spatial import KDTree
-from models.chat_model import create_chatbot
+from models.chat_model import create_chatbot, AVAILABLE_MODELS
 
 app = Flask(__name__)
 

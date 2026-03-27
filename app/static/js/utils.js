@@ -1,4 +1,31 @@
+
+/**
+ * Fetch the poster URL for a given movie.
+ * @param {*} movie - The movie title (and optionally year)
+ * @returns {Promise<string|null>} - The poster URL or null if not found
+ */
 export async function fetchPoster(movie) {
+
+    // Helper functions
+    function parseMovie(input) {
+        const match = input.match(/^(.*?)(?:\s*\((\d{4})\))?$/);
+
+        return {
+            title: match?.[1]?.trim() || input,
+            year: match?.[2] || null
+        };
+    }
+
+    async function isValidImage(url) {
+        try {
+            const res = await fetch(url, { method: "HEAD" });
+            return res.ok;
+        } catch {
+            return false;
+        }
+    }
+
+    // Main logic
     const { title, year } = parseMovie(movie);
 
     const baseUrl = "http://www.omdbapi.com/";
@@ -45,24 +72,12 @@ export async function fetchPoster(movie) {
     return null;
 }
 
-function parseMovie(input) {
-    const match = input.match(/^(.*?)(?:\s*\((\d{4})\))?$/);
 
-    return {
-        title: match?.[1]?.trim() || input,
-        year: match?.[2] || null
-    };
-}
-
-async function isValidImage(url) {
-    try {
-        const res = await fetch(url, { method: "HEAD" });
-        return res.ok;
-    } catch {
-        return false;
-    }
-}
-
+/**
+ * Escape HTML special characters in a string.
+ * @param {*} str - The string to escape
+ * @returns {string} - The escaped string
+ */
 export function escHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;')
@@ -70,4 +85,23 @@ export function escHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+
+/**
+ * Scroll an element to the bottom if the user is near the bottom.
+ * @param {HTMLElement} el - The scrollable container element
+ * @param {number} threshold - Distance in px from bottom to trigger scroll default: 100
+ * @param {boolean} smooth - Whether to scroll smoothly default: true
+ */
+export function scrollToBottom(el, threshold = 100, smooth = true) {
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+
+  // Only scroll if user is near the bottom
+  if (distanceFromBottom < threshold) {
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  }
 }

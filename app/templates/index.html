@@ -1,75 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Movie Orbit 3D</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- Chatbot styles -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/chatbot.css') }}">
-    <script type="importmap">
-        {
-            "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Movie Orbit 3D</title>
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/orbit-view/style.css') }}">
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/orbit-view/chat-widget.css') }}">
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        <script type="importmap">
+            {
+                "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+                }
             }
-        }
-    </script>
-</head>
+        </script>
+    </head>
 
-<body>
-    <main class="app">
-        <section class="top">
-            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
-                <h1>Movie Orbit 3D</h1>
-                <a href="/chat" class="chat-link">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h3l3 3 3-3h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-2 9H6V9h12v2zm0-4H6V5h12v2z"/></svg>
-                    Movie Assistant
-                </a>
-            </div>
-            <p class="subtitle">Direction-preserving 3D mode: top 5 closest movies are highlighted, next 20 are dim but
-                still clickable. Click any node to jump to that movie.</p>
-
-            <div class="search">
-                <input id="search-input" type="text" placeholder="Type a movie name (e.g. Creed III)"
-                    autocomplete="off" />
-                <button id="search-btn">Launch</button>
-                <div id="autocomplete-list"></div>
-            </div>
-            <div class="message-container">
-                <p class="msg" id="message"></p>
-                <div>
-                    <select id="n-select">
-                        <option value="10">10</option>
-                        <option value="25" selected>25</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                    </select>
-                    <button id="engine-toggle" class="engine-btn">Switch to 2D</button>
+    <body>
+        <main class="app">
+            <section class="top">
+                <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+                    <h1>Movie Orbit 3D</h1>
+                    <a href="/chat" class="chat-link">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h3l3 3 3-3h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-2 9H6V9h12v2zm0-4H6V5h12v2z"/></svg>
+                        Movie Assistant
+                    </a>
                 </div>
-            </div>
-        </section>
+                <p class="subtitle">Direction-preserving 3D mode: top 5 closest movies are highlighted, next 20 are dim but
+                    still clickable. Click any node to jump to that movie.</p>
 
-        <section class="panel">
-            <div class="legend">
-                <span><b>Center Node:</b> searched movie</span>
-                <span><b>Bright Nodes:</b> top 5 closest movies</span>
-                <span><b>Dim Nodes:</b> next 20, still clickable</span>
-                <span><b>Lines:</b> top 5 only</span>
-                <span><b>Mouse:</b> drag rotate, wheel zoom, right-drag pan</span>
-            </div>
-            <div id="space"></div>
-            <div class="meta" id="meta">
-                <div class="meta-title">No movie selected</div>
-                <div class="meta-sub">Search above to generate a movie orbit.</div>
-            </div>
-        </section>
-    </main>
+                <div class="search">
+                    <input id="search-input" type="text" placeholder="Type a movie name (e.g. Creed III)"
+                        autocomplete="off" />
+                    <button id="search-btn">Launch</button>
+                    <div id="autocomplete-list"></div>
+                </div>
+                <div class="message-container">
+                    <p class="msg" id="message"></p>
+                    <div>
+                        <select id="n-select">
+                            <option value="10">10</option>
+                            <option value="25" selected>25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                        <button id="engine-toggle" class="engine-btn">Switch to 2D</button>
+                    </div>
+                </div>
+            </section>
 
-    <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
-    <!-- Chatbot widget -->
-    <script type="module" src="{{ url_for('static', filename='js/chat_widget.js') }}"></script>
-</body>
+            <section class="panel">
+                <div class="legend">
+                    <span><b>Center Node:</b> searched movie</span>
+                    <span><b>Bright Nodes:</b> top 5 closest movies</span>
+                    <span><b>Dim Nodes:</b> next 20, still clickable</span>
+                    <span><b>Lines:</b> top 5 only</span>
+                    <span><b>Mouse:</b> drag rotate, wheel zoom, right-drag pan</span>
+                </div>
+                <div id="space"></div>
+                <div class="meta" id="meta">
+                    <div class="meta-title">No movie selected</div>
+                    <div class="meta-sub">Search above to generate a movie orbit.</div>
+                </div>
+            </section>
+        </main>
+
+        <script type="module" src="{{ url_for('static', filename='js/orbit-view/main.js') }}"></script>
+        <script type="module" src="{{ url_for('static', filename='js/orbit-view/chat-widget.js') }}"></script>
+    </body>
 
 </html>
