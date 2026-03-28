@@ -186,7 +186,7 @@ header {
     text-align: center;
     font-size: 11px;
     color: var(--text-dim);
-    font-family: 'Syne Mono', monospace;
+    font-family: 'Space Grotesk', sans-serif;
     letter-spacing: 0.08em;
     margin: 6px 0;
     animation: fadeIn 0.3s ease both;
@@ -219,14 +219,14 @@ header {
     background: linear-gradient(135deg, rgba(56,224,184,0.2), rgba(87,179,255,0.2));
     border: 1px solid rgba(56,224,184,0.25);
     color: var(--teal);
-    font-family: 'Syne Mono', monospace;
+    font-family: 'Space Grotesk', sans-serif;
     font-size: 11px;
 }
 .msg-row.user .msg-avatar {
     background: linear-gradient(135deg, rgba(87,179,255,0.18), rgba(56,224,184,0.12));
     border: 1px solid rgba(87,179,255,0.25);
     color: var(--blue);
-    font-family: 'Syne Mono', monospace;
+    font-family: 'Space Grotesk', sans-serif;
     font-size: 11px;
 }
 
@@ -265,7 +265,7 @@ header {
 .msg-time {
     font-size: 10px;
     color: var(--text-dim);
-    font-family: 'Syne Mono', monospace;
+    font-family: 'Space Grotesk', sans-serif;
     margin-top: 5px;
     letter-spacing: 0.04em;
 }

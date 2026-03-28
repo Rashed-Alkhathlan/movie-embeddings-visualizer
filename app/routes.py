@@ -130,6 +130,8 @@ def set_model():
     try:
         asyncio.run(bot.switch_model(model_id))
         return jsonify({"status": "ok", "model": model_id})
+    except:
+        return jsonify({"error": "Failed to switch model"}), 500
     finally:
         bot_lock.release()
 

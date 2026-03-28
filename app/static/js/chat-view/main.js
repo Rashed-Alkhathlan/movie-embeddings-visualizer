@@ -383,6 +383,7 @@ async function loadModels() {
 
         // Select the currently active model without triggering a switch
         const active = models.find(m => m.id === activeId) || models[0];
+        currentModel = active;
         selectModel(active, false);
 
     } catch {
@@ -391,7 +392,6 @@ async function loadModels() {
 }
 
 function selectModel(model, notify = true) {
-    currentModel = model.id;
     modelLabel.textContent = model.label;
 
     // Update active state
@@ -411,9 +411,17 @@ async function switchModel(model) {
             body: JSON.stringify({ model: model.id }),
         });
         if (res.status === 429) {
-            appendBotMsg('⏳ Cannot switch model while a response is processing.');
+            appendDateSep('⏳ Cannot switch model while a response is processing.');
             return;
         }
+        if (res.status !== 200) {
+            appendDateSep('⚠ Failed to switch model.');
+            if (model !== currentModel) {
+                selectModel(currentModel, false);
+            }
+            return;
+        }
+        currentModel = model;
         appendDateSep(`Switched to ${model.label}`);
         scrollToBottom(messagesEl);
         msgCount = 0;
@@ -438,7 +446,7 @@ modelList.addEventListener('click', (e) => {
     const option = e.target.closest('.model-option');
     if (!option) return;
     const model = allModels.find(m => m.id === option.dataset.id);
-    if (model && model.id !== currentModel) selectModel(model);
+    if (model && model.id !== currentModel.id) selectModel(model);
     else closeDropdown();
 });
 
