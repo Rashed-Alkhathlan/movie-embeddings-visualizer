@@ -160,35 +160,8 @@ function showTyping() {
             <span></span><span></span><span></span>
         </div>`;
     messagesEl.appendChild(row);
-    scrollToBottom(messagesEl);
+    scrollToBottom(messagesEl, 200);
     return row;
-}
-
-function setTypingStatus(typingRow, statusText) {
-    // Update the typing indicator to show a status message
-    const bubble = typingRow.querySelector('.typing-bubble') 
-                || typingRow.querySelector('.status-bubble');
-    
-    const html = marked.parse(
-        typeof statusText === "string" ? statusText : ""
-    );
-    
-    if (html) {
-        typingRow.innerHTML = `
-            <div class="msg-avatar">AI</div>
-            <div class="status-bubble">
-                <div class="status-spinner"></div>
-                <span class="status-text">${html}</span>
-            </div>`;
-    } else {
-        // Revert to plain typing dots
-        typingRow.innerHTML = `
-            <div class="msg-avatar">AI</div>
-            <div class="typing-bubble">
-                <span></span><span></span><span></span>
-            </div>`;
-    }
-    scrollToBottom(messagesEl);
 }
 
 function setInputLocked(locked) {
@@ -214,12 +187,34 @@ async function sendMessage() {
     const typingRow = showTyping();
     setInputLocked(true);
 
-    let streamingRow = null;      // the live bot bubble
-    let rawTokens = '';           // accumulate raw markdown
+    let streamingRow = null;
+    let rawTokens = '';
     let charQueue = [];
     let draining = false;
+    let activeStatuses = [];        // ← queue of active status messages
 
-    const CHARS_PER_TICK = 4; // increase for faster typing
+    function renderStatuses() {
+        if (activeStatuses.length === 0) {
+            typingRow.innerHTML = `
+                <div class="msg-avatar">AI</div>
+                <div class="typing-bubble">
+                    <span></span><span></span><span></span>
+                </div>`;
+        } else {
+            const items = activeStatuses.map(s =>
+                `<div class="status-item">
+                    <div class="status-spinner"></div>
+                    <span class="status-text">${marked.parse(s)}</span>
+                </div>`
+            ).join('');
+            typingRow.innerHTML = `
+                <div class="msg-avatar">AI</div>
+                <div class="status-bubble">${items}</div>`;
+        }
+        scrollToBottom(messagesEl, 200);
+    }
+
+    const CHARS_PER_TICK = 4;
 
     function drainQueue() {
         if (charQueue.length === 0) {
@@ -235,7 +230,7 @@ async function sendMessage() {
 
         const bubble = streamingRow.querySelector('.msg-bubble');
         bubble.innerHTML = marked.parse(rawTokens);
-        scrollToBottom(messagesEl);
+        scrollToBottom(messagesEl, 50);
 
         setTimeout(drainQueue, 4); // ms per character — tune this
     }
@@ -273,12 +268,15 @@ async function sendMessage() {
                 catch { continue; }
 
                 if (event.type === 'status') {
-                    setTypingStatus(typingRow, event.data);
+                    activeStatuses.push(event.data);    // ← push to queue
+                    renderStatuses();
 
                 } else if (event.type === 'status_clear') {
-                    setTypingStatus(typingRow, null);
+                    activeStatuses.shift();             // ← remove oldest
+                    renderStatuses();
 
                 } else if (event.type === 'token') {
+                    activeStatuses = [];                // ← clear when answer starts
                     if (!streamingRow) {
                         typingRow.remove();
                         streamingRow = document.createElement('div');
@@ -290,13 +288,7 @@ async function sendMessage() {
                             </div>`;
                         messagesEl.appendChild(streamingRow);
                     }
-
-                    // Push each character into the queue
-                    for (const char of event.data) {
-                        charQueue.push(char);
-                    }
-
-                    // Start draining if not already running
+                    for (const char of event.data) charQueue.push(char);
                     if (!draining) drainQueue();
 
                 } else if (event.type === 'tokens_reset') {
@@ -310,7 +302,7 @@ async function sendMessage() {
                     // Restore typing indicator
                     typingRow.id = 'typing-row';
                     messagesEl.appendChild(typingRow);
-                    scrollToBottom(messagesEl);
+                    scrollToBottom(messagesEl, 200);
 
                 } else if (event.type === 'reply_done') {
                     // Poll until the queue is empty, then finalize
@@ -332,12 +324,16 @@ async function sendMessage() {
                             msgCount++;
                             updateMsgCount();
                         }
-                        scrollToBottom(messagesEl);
+                        scrollToBottom(messagesEl, 200);
                     }
                     finalize();
 
                 } else if (event.type === 'error') {
                     typingRow.remove();
+                    streamingRow?.remove();
+                    streamingRow = null;
+                    charQueue = [];
+                    draining = false;
                     appendBotMsg('⚠ ' + event.data);
                 }
             }
@@ -345,6 +341,7 @@ async function sendMessage() {
     } catch (_err) {
         console.log(_err.message);
         typingRow.remove();
+        streamingRow?.remove();
         appendBotMsg('⚠ Could not reach the server. Please check your connection.');
     } finally {
         setInputLocked(false);
@@ -418,6 +415,7 @@ async function switchModel(model) {
             return;
         }
         appendDateSep(`Switched to ${model.label}`);
+        scrollToBottom(messagesEl);
         msgCount = 0;
         updateMsgCount();
     } catch {

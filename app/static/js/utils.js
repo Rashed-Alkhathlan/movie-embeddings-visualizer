@@ -91,17 +91,25 @@ export function escHtml(str) {
 /**
  * Scroll an element to the bottom if the user is near the bottom.
  * @param {HTMLElement} el - The scrollable container element
- * @param {number} threshold - Distance in px from bottom to trigger scroll default: 100
+ * @param {number} threshold - Distance in px from bottom to trigger scroll default: 0 (= disabled)
  * @param {boolean} smooth - Whether to scroll smoothly default: true
  */
-export function scrollToBottom(el, threshold = 100, smooth = true) {
-  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+export function scrollToBottom(el, threshold = 0, smooth = true) {
 
-  // Only scroll if user is near the bottom
-  if (distanceFromBottom < threshold) {
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: smooth ? 'smooth' : 'auto'
-    });
-  }
+    if (threshold !== 0) {
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+
+        // Only scroll if user is near the bottom
+        if (distanceFromBottom < threshold) {
+        el.scrollTo({
+            top: el.scrollHeight,
+            behavior: smooth ? 'smooth' : 'auto'
+        });
+        }
+    } else {
+        el.scrollTo({
+            top: el.scrollHeight,
+            behavior: smooth ? 'smooth' : 'auto'
+        });
+    }
 }

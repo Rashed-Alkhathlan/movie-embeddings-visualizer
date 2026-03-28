@@ -110,7 +110,7 @@ def _keywords(text: str, limit: int = 8) -> list[str]:
 
 
 @mcp.tool()
-def web_search(query: str, max_results: int = 8) -> dict[str, Any]:
+def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     """Search the web and return a ranked list of result links.
 
     Use this tool when you need to discover relevant webpages for a query.
@@ -141,7 +141,7 @@ def web_search(query: str, max_results: int = 8) -> dict[str, Any]:
 
 
 @mcp.tool()
-def fetch_web_page(url: str, max_text_chars: int = 3000) -> dict[str, Any]:
+def fetch_web_page(url: str, max_text_chars: int = 1500) -> dict[str, Any]:
     """Fetch and analyze a single webpage by URL.
 
     Use this tool when you already have a webpage URL and need its contents.
@@ -182,7 +182,7 @@ def fetch_web_page(url: str, max_text_chars: int = 3000) -> dict[str, Any]:
 
 
 @mcp.tool()
-def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 2200) -> dict[str, Any]:
+def research_topic(query: str, max_sources: int = 5, per_source_chars: int = 1200) -> dict[str, Any]:
     """Perform full web research on a topic.
 
     This tool automatically:

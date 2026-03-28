@@ -9,13 +9,15 @@ from langchain.agents import create_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_cohere import ChatCohere 
 from langchain_mistralai import ChatMistralAI
+from langchain_cerebras import ChatCerebras
 from langchain_mcp_adapters import client
 
 # Avalible LLM models                                               PS: Update list when adding a new one
 # Used for frontend model switching and fallbacks
 AVAILABLE_MODELS = [
-    {"id": "gemini-3.1-flash-lite-preview", "label": "Gemini 3.1 Flash Lite Preview",   "provider": "Google"},
-    {"id": "command-a-03-2025",             "label": "Command A",                       "provider": "Cohere"},
+    {"id": "gemini-3.1-flash-lite-preview",     "label": "Gemini 3.1 Flash Lite Preview",   "provider": "Google"},
+    {"id": "command-a-03-2025",                 "label": "Command A",                       "provider": "Cohere"},
+    {"id": "qwen-3-235b-a22b-instruct-2507",    "label": "Qwen 3 235b",                     "provider": "Cerebras"},
 ]
 
 
@@ -82,6 +84,9 @@ class MCPChatbot:
         final_answer = ""
         collected_messages = []
         tool_active = False
+        step = 0
+        current_step = 0
+        step_token_buffer = []  # buffer tokens for current step
 
         async for event in self.agent.astream_events({"messages": messages}, version="v2"):
             kind = event.get("event")
@@ -92,25 +97,36 @@ class MCPChatbot:
 
             elif kind == "on_tool_start":
                 tool_active = True
+                current_step = step
+
+                # Discard buffered tokens — they were planning narration
+                if step_token_buffer:
+                    step_token_buffer.clear()
+                    if final_answer:
+                        final_answer = ""
+                        yield ("tokens_reset", "")
+
                 tool_name = event.get("name", "tool")
                 tool_input = event.get("data", {}).get("input", {})
 
-                # Reset any narration tokens that leaked through before this tool call
-                if final_answer:
-                    final_answer = ""
-                    yield ("tokens_reset", "")
-
                 if "search" in tool_name.lower():
                     queries = tool_input.get("queries") or tool_input.get("query")
+
                     if isinstance(queries, list):
                         query_text = ", ".join(f"**{q}**" for q in queries)
+                        status = f"🔎 Multi-Researching the web for: {query_text}"
                     else:
                         query_text = f"**{queries}**"
-                    status = f"🔍 Searching the web for: {query_text}"
+                        if "research" in tool_name.lower():
+                            status = f"🔍 Researching the web for: {query_text}"
+                        else:
+                            status = f"🔍 Searching the web for: {query_text}"
+
                 elif "fetch" in tool_name.lower() or "browse" in tool_name.lower():
                     url = tool_input.get("url", tool_input.get("path", ""))
                     short_url = url[:60] + "…" if len(url) > 60 else url
                     status = f"🌐 Fetching page: `{short_url}`"
+
                 else:
                     status = f"⚙️ Using tool: `{tool_name}`"
 
@@ -121,24 +137,39 @@ class MCPChatbot:
                 yield ("status_clear", "")
 
             elif kind == "on_chat_model_stream":
-
                 if tool_active:
                     continue
+
+
+                if step > current_step:
+                    # New step — flush previous buffer as real tokens
+                    for token in step_token_buffer:
+                        final_answer += token
+                        yield ("token", token)
+                    step_token_buffer.clear()
+                    current_step = step
+
+                step += 1
 
                 chunk = event.get("data", {}).get("chunk")
                 if chunk:
                     content = chunk.content if hasattr(chunk, "content") else ""
                     if isinstance(content, str) and content:
-                        final_answer += content
-                        yield ("token", content)
+                        step_token_buffer.append(content)
                     elif isinstance(content, list) and content:
                         token = content[0].get("text", "")
                         if token:
-                            final_answer += token
-                            yield ("token", token)
+                            step_token_buffer.append(token)
+
+        # Flush remaining buffer — these are the final answer tokens
+        for token in step_token_buffer:
+            final_answer += token
+            yield ("token", token)
+        step_token_buffer.clear()
 
         if collected_messages:
-            print_agent_trace({"messages": collected_messages})
+            # print_agent_trace({"messages": collected_messages})   # Uncomment for printing the agent's trace for debuging
+            pass
 
         if keep_history:
             self.history.append({"role": "user", "content": text})
@@ -154,6 +185,8 @@ class MCPChatbot:
             llm = ChatCohere(model=model_name, temperature=temperature)
         elif "mistral" in model_name or "mixtral" in model_name:
             llm = ChatMistralAI(model_name=model_name, temperature=temperature)
+        elif "cerebras" in model_name or "qwen" in model_name or "llama" in model_name:
+            llm = ChatCerebras(model=model_name, temperature=temperature)
         else:
             raise ValueError(f"Unknown model: {model_name}")
 
@@ -193,6 +226,8 @@ async def build_chatbot(
         llm = ChatCohere(model=model_name, temperature=temperature) # best is "command-a-03-2025"
     elif "mistral" in model_name:
         llm = ChatMistralAI(model_name=model_name, temperature=temperature)
+    elif "cerebras" in model_name or "qwen" in model_name or "llama" in model_name:
+        llm = ChatCerebras(model=model_name, temperature=temperature)
 
     if enable_tools:
         tools = await mcp_client.get_tools()
