@@ -422,6 +422,7 @@ async function switchModel(model) {
             return;
         }
         currentModel = model;
+        selectModel(currentModel, false);
         appendDateSep(`Switched to ${model.label}`);
         scrollToBottom(messagesEl);
         msgCount = 0;
