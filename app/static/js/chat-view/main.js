@@ -405,6 +405,7 @@ function selectModel(model, notify = true) {
 
 async function switchModel(model) {
     try {
+        setInputLocked(true);
         const res = await fetch('/api/chat/model', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -429,6 +430,8 @@ async function switchModel(model) {
         updateMsgCount();
     } catch {
         appendBotMsg('⚠ Failed to switch model.');
+    } finally {
+        setInputLocked(false);
     }
 }
 
