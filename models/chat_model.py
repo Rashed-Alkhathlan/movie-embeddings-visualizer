@@ -10,6 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_cohere import ChatCohere 
 from langchain_mistralai import ChatMistralAI
 from langchain_cerebras import ChatCerebras
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_mcp_adapters import client
 
 # Avalible LLM models                                               PS: Update list when adding a new one
@@ -18,6 +19,8 @@ AVAILABLE_MODELS = [
     {"id": "gemini-3.1-flash-lite-preview",     "label": "Gemini 3.1 Flash Lite Preview",   "provider": "Google"},
     {"id": "command-a-03-2025",                 "label": "Command A",                       "provider": "Cohere"},
     {"id": "qwen-3-235b-a22b-instruct-2507",    "label": "Qwen 3 235b",                     "provider": "Cerebras"},
+    {"id": "moonshotai/kimi-k2-instruct",       "label": "Kimi K2 Instruct",                "provider": "NVIDIA"},
+    {"id": "stepfun-ai/step-3.5-flash",         "label": "Step 3.5 Flash",                  "provider": "NVIDIA"},
 ]
 
 
@@ -84,9 +87,6 @@ class MCPChatbot:
         final_answer = ""
         collected_messages = []
         tool_active = False
-        step = 0
-        current_step = 0
-        step_token_buffer = []  # buffer tokens for current step
 
         async for event in self.agent.astream_events({"messages": messages}, version="v2"):
             kind = event.get("event")
@@ -97,21 +97,16 @@ class MCPChatbot:
 
             elif kind == "on_tool_start":
                 tool_active = True
-                current_step = step
 
-                # Discard buffered tokens — they were planning narration
-                if step_token_buffer:
-                    step_token_buffer.clear()
-                    if final_answer:
-                        final_answer = ""
-                        yield ("tokens_reset", "")
+                if final_answer:
+                    final_answer = ""
+                    yield ("tokens_reset", "")
 
                 tool_name = event.get("name", "tool")
                 tool_input = event.get("data", {}).get("input", {})
 
                 if "search" in tool_name.lower():
                     queries = tool_input.get("queries") or tool_input.get("query")
-
                     if isinstance(queries, list):
                         query_text = ", ".join(f"**{q}**" for q in queries)
                         status = f"🔎 Multi-Researching the web for: {query_text}"
@@ -140,32 +135,50 @@ class MCPChatbot:
                 if tool_active:
                     continue
 
-
-                if step > current_step:
-                    # New step — flush previous buffer as real tokens
-                    for token in step_token_buffer:
-                        final_answer += token
-                        yield ("token", token)
-                    step_token_buffer.clear()
-                    current_step = step
-
-                step += 1
-
                 chunk = event.get("data", {}).get("chunk")
-                if chunk:
-                    content = chunk.content if hasattr(chunk, "content") else ""
-                    if isinstance(content, str) and content:
-                        step_token_buffer.append(content)
-                    elif isinstance(content, list) and content:
-                        token = content[0].get("text", "")
-                        if token:
-                            step_token_buffer.append(token)
+                if not chunk:
+                    continue
 
-        # Flush remaining buffer — these are the final answer tokens
-        for token in step_token_buffer:
-            final_answer += token
-            yield ("token", token)
-        step_token_buffer.clear()
+                content_blocks = getattr(chunk, "content_blocks", None)
+                if content_blocks:
+                    # Path 1: Gemini, Anthropic, NVIDIA (future) — structured blocks
+
+                    for block in content_blocks:
+                        if block.get("type") == "reasoning":
+                            thinking_text = block.get("reasoning", "")
+                            if thinking_text:
+                                yield ("thinking", thinking_text)
+
+                        elif block.get("type") == "text":
+                            token = block.get("text", "")
+
+                            if token:
+                                if "</think>" in token: # For Step 3.5 Flash which may include thinking and answer in the same block, we split them and emit a reset event for the thinking part
+                                    token = token.split("\n</think>\n")[-1].strip()
+                                    yield ("tokens_reset", "")
+
+                                if token:
+                                    final_answer += token
+                                    yield ("token", token)
+
+                else:
+                    # Path 2: additional_kwargs (fallback for providers without content_blocks)
+                    reasoning = (getattr(chunk, "additional_kwargs", {}) or {}).get("reasoning_content", "")
+                    if reasoning:
+                        yield ("thinking", reasoning)
+
+
+                    # Path 3: plain string content
+                    content = getattr(chunk, "content", "")
+                    if isinstance(content, str) and content:
+                        final_answer += content
+                        yield ("token", content)
+                    elif isinstance(content, list):
+                        for item in content:
+                            token = item.get("text", "") if isinstance(item, dict) else ""
+                            if token:
+                                final_answer += token
+                                yield ("token", token)
 
         if collected_messages:
             # print_agent_trace({"messages": collected_messages})   # Uncomment for printing the agent's trace for debuging
@@ -187,6 +200,8 @@ class MCPChatbot:
             llm = ChatMistralAI(model_name=model_name, temperature=temperature)
         elif "cerebras" in model_name or "qwen" in model_name or "llama" in model_name:
             llm = ChatCerebras(model=model_name, temperature=temperature)
+        elif "moonshot" in model_name or "kimi" in model_name or "stepfun" in model_name:
+            llm = ChatNVIDIA(model=model_name, temperature=temperature)
         else:
             raise ValueError(f"Unknown model: {model_name}")
 
