@@ -227,9 +227,9 @@ async def build_chatbot(
 
     mcp_client = client.MultiServerMCPClient(
         {
-            "web_research": {
+            "web_search": {
                 "command": sys.executable,
-                "args": [str(mcp_dir / "web_research_mcp.py")],
+                "args": [str(mcp_dir / "web_search_mcp.py")],
                 "transport": "stdio",
             }
         }
