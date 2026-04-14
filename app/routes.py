@@ -85,6 +85,7 @@ def chat_bot():
                             result_queue.put((event_type, data))
                     except Exception as e:
                         result_queue.put(("error", f"The AI service is temporarily unavailable. Please try again."))
+                        print(e)
 
                 asyncio.run(_run())
 
@@ -117,20 +118,25 @@ def clear_chat_history():
 
 @app.get("/api/chat/models")
 def get_models():
-    return jsonify({"models": AVAILABLE_MODELS})
+    return jsonify({
+        "models": [
+            {"id": k, **v} for k, v in AVAILABLE_MODELS.items()
+        ]
+    })
 
 
 @app.post("/api/chat/model")
 def set_model():
     model_id = request.get_json().get("model", "")
-    if model_id not in [m["id"] for m in AVAILABLE_MODELS]:
+    if model_id not in AVAILABLE_MODELS:
         return jsonify({"error": "Invalid model"}), 400
     if not bot_lock.acquire(blocking=False):
         return jsonify({"error": "Cannot switch while processing"}), 429
     try:
         asyncio.run(bot.switch_model(model_id))
         return jsonify({"status": "ok", "model": model_id})
-    except:
+    except Exception as e:
+        print(e)
         return jsonify({"error": "Failed to switch model"}), 500
     finally:
         bot_lock.release()

@@ -15,13 +15,20 @@ from langchain_mcp_adapters import client
 
 # Avalible LLM models                                               PS: Update list when adding a new one
 # Used for frontend model switching and fallbacks
-AVAILABLE_MODELS = [
-    {"id": "gemini-3.1-flash-lite-preview",     "label": "Gemini 3.1 Flash Lite Preview",   "provider": "Google"},
-    {"id": "command-a-03-2025",                 "label": "Command A",                       "provider": "Cohere"},
-    {"id": "qwen-3-235b-a22b-instruct-2507",    "label": "Qwen 3 235b",                     "provider": "Cerebras"},
-    {"id": "moonshotai/kimi-k2-instruct",       "label": "Kimi K2 Instruct",                "provider": "NVIDIA"},
-    {"id": "stepfun-ai/step-3.5-flash",         "label": "Step 3.5 Flash",                  "provider": "NVIDIA"},
-]
+AVAILABLE_MODELS = {
+    "gemini-3.1-flash-lite-preview":    {"label": "Gemini 3.1 Flash Lite Preview",   "provider": "Google"},
+    "command-a-03-2025":                {"label": "Command A",                       "provider": "Cohere"},
+    "qwen-3-235b-a22b-instruct-2507":   {"label": "Qwen 3 235b",                     "provider": "Cerebras"},
+    "moonshotai/kimi-k2-instruct":      {"label": "Kimi K2 Instruct",                "provider": "NVIDIA"},
+    "stepfun-ai/step-3.5-flash":        {"label": "Step 3.5 Flash",                  "provider": "NVIDIA"},
+}
+
+MODEL_PROVIDERS = {
+    "Google":   lambda model, temp: ChatGoogleGenerativeAI(model=model, temperature=temp),
+    "Cohere":   lambda model, temp: ChatCohere(model=model, temperature=temp),
+    "Cerebras": lambda model, temp: ChatCerebras(model=model, temperature=temp),
+    "NVIDIA":   lambda model, temp: ChatNVIDIA(model=model, temperature=temp),
+}
 
 
 def print_agent_trace(result: Any) -> None:
@@ -90,6 +97,8 @@ class MCPChatbot:
 
         async for event in self.agent.astream_events({"messages": messages}, version="v2"):
             kind = event.get("event")
+
+            print(kind)
 
             if kind == "on_chain_end" and event.get("name") == "LangGraph":
                 output = event.get("data", {}).get("output", {})
@@ -192,22 +201,22 @@ class MCPChatbot:
 
 
     async def switch_model(self, model_name: str, temperature: float = 0.7) -> None:
-        if "gemma" in model_name or "gemini" in model_name:
-            llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
-        elif "command" in model_name:
-            llm = ChatCohere(model=model_name, temperature=temperature)
-        elif "mistral" in model_name or "mixtral" in model_name:
-            llm = ChatMistralAI(model_name=model_name, temperature=temperature)
-        elif "cerebras" in model_name or "qwen" in model_name or "llama" in model_name:
-            llm = ChatCerebras(model=model_name, temperature=temperature)
-        elif "moonshot" in model_name or "kimi" in model_name or "stepfun" in model_name:
-            llm = ChatNVIDIA(model=model_name, temperature=temperature)
-        else:
+        model = AVAILABLE_MODELS.get(model_name)
+        if not model:
             raise ValueError(f"Unknown model: {model_name}")
+
+        provider = model["provider"]
+
+        model_provider = MODEL_PROVIDERS.get(provider)
+        if not model_provider:
+            raise ValueError(f"Unsupported provider: {provider}")
+
+        llm = model_provider(model_name, temperature)
 
         tools = await self.mcp_client.get_tools()
         self.agent = create_agent(llm, tools=tools)
-        self.current_model = model_name  # update on switch
+
+        self.current_model = model_name
         self.history.clear()
 
 
@@ -235,14 +244,17 @@ async def build_chatbot(
         }
     )
 
-    if "gemma" in model_name or "gemini" in model_name:
-        llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
-    elif "command" in model_name:
-        llm = ChatCohere(model=model_name, temperature=temperature) # best is "command-a-03-2025"
-    elif "mistral" in model_name:
-        llm = ChatMistralAI(model_name=model_name, temperature=temperature)
-    elif "cerebras" in model_name or "qwen" in model_name or "llama" in model_name:
-        llm = ChatCerebras(model=model_name, temperature=temperature)
+    model = AVAILABLE_MODELS.get(model_name)
+    if not model:
+        raise ValueError(f"Unknown model: {model_name}")
+
+    provider = model["provider"]
+
+    model_provider = MODEL_PROVIDERS.get(provider)
+    if not model_provider:
+        raise ValueError(f"Unsupported provider: {provider}")
+
+    llm = model_provider(model_name, temperature)
 
     if enable_tools:
         tools = await mcp_client.get_tools()
