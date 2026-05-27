@@ -1,18 +1,20 @@
 import asyncio
+import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
-import json
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
+from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_cohere import ChatCohere 
 from langchain_mistralai import ChatMistralAI
 from langchain_cerebras import ChatCerebras
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_mcp_adapters import client
-
+from movie_search import get_closest_movies
 # Avalible LLM models                                               PS: Update list when adding a new one
 # Used for frontend model switching and fallbacks
 AVAILABLE_MODELS = {
@@ -29,6 +31,34 @@ MODEL_PROVIDERS = {
     "Cerebras": lambda model, temp: ChatCerebras(model=model, temperature=temp),
     "NVIDIA":   lambda model, temp: ChatNVIDIA(model=model, temperature=temp),
 }
+
+
+def _system_hint() -> dict[str, str]:
+    return {
+        "role": "system",
+        "content": (
+            "You can use the find_similar_movies tool to query similar movies from the vector database. "
+            "When the user asks for similar movies, call the tool and mix the output: half from the tool "
+            "results and half from your own knowledge. If the user specifies a number, split it evenly; "
+            "if it is odd, include one extra recommendation from the tool. If the user does not specify a "
+            "number, return 3 tool-based results and 2 knowledge-based results. Label or clearly distinguish "
+            "which are tool-based vs knowledge-based."
+        ),
+    }
+
+
+@tool("find_similar_movies")
+def find_similar_movies(query: str, top_k: int = 3) -> dict[str, Any]:
+    """Return vector-search results for movies similar to the query."""
+    logging.getLogger("app.tools").info(
+        "tool=find_similar_movies query=%r top_k=%s",
+        query,
+        top_k,
+    )
+    title, results = get_closest_movies(query, n=top_k)
+    if results is None:
+        return {"query": query, "found": False, "results": []}
+    return {"query": title, "found": True, "results": results}
 
 
 def print_agent_trace(result: Any) -> None:
@@ -67,7 +97,7 @@ class MCPChatbot:
 
 
     async def ask(self, text: str, keep_history: bool = True) -> str:
-        messages = list(self.history) if keep_history else []
+        messages = [_system_hint()] + (list(self.history) if keep_history else [])
         messages.append({"role": "user", "content": text})
 
         result = await self.agent.ainvoke({"messages": messages})
@@ -88,7 +118,7 @@ class MCPChatbot:
     
     
     async def ask_stream(self, text: str, keep_history: bool = True):
-        messages = list(self.history) if keep_history else []
+        messages = [_system_hint()] + (list(self.history) if keep_history else [])
         messages.append({"role": "user", "content": text})
 
         final_answer = ""
@@ -114,6 +144,12 @@ class MCPChatbot:
                 tool_name = event.get("name", "tool")
                 tool_input = event.get("data", {}).get("input", {})
 
+                logging.getLogger("app.tools").info(
+                    "tool_start name=%s input=%s",
+                    tool_name,
+                    tool_input,
+                )
+
                 if "search" in tool_name.lower():
                     queries = tool_input.get("queries") or tool_input.get("query")
                     if isinstance(queries, list):
@@ -138,6 +174,13 @@ class MCPChatbot:
 
             elif kind == "on_tool_end":
                 tool_active = False
+                tool_name = event.get("name", "tool")
+                tool_output = event.get("data", {}).get("output", None)
+                logging.getLogger("app.tools").info(
+                    "tool_end name=%s output=%s",
+                    tool_name,
+                    tool_output,
+                )
                 yield ("status_clear", "")
 
             elif kind == "on_chat_model_stream":
@@ -213,7 +256,8 @@ class MCPChatbot:
 
         llm = model_provider(model_name, temperature)
 
-        tools = await self.mcp_client.get_tools()
+        tools = [find_similar_movies]
+        tools.extend(await self.mcp_client.get_tools())
         self.agent = create_agent(llm, tools=tools)
 
         self.current_model = model_name
@@ -257,7 +301,8 @@ async def build_chatbot(
     llm = model_provider(model_name, temperature)
 
     if enable_tools:
-        tools = await mcp_client.get_tools()
+        tools = [find_similar_movies]
+        tools.extend(await mcp_client.get_tools())
         agent = create_agent(llm, tools=tools)
     else:
         agent = create_agent(llm)
