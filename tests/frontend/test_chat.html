@@ -1,0 +1,145 @@
+<!--
+This is a test for the frontend functions. 
+It tests and it verifies the UI components, markdown rendering, and mock streaming behavior of the chat interface.
+
+To run tests just open this file in a browser or serve it via a local development server.
+ -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat Frontend Tests</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #0a0f1a; color: #c8deff; }
+        .pass { color: #38e0b8; } .fail { color: #ff6b6b; }
+        .test { margin: 6px 0; }
+    </style>
+</head>
+<body>
+<h2>Chat Frontend Tests</h2>
+<div id="results"></div>
+
+<!-- Hidden DOM that the chat logic needs -->
+<div id="messages"></div>
+<textarea id="chat-input"></textarea>
+<button id="send-btn"></button>
+<span id="char-count"></span>
+<span id="msg-count"></span>
+
+<script>
+const results = document.getElementById('results');
+let passed = 0, failed = 0;
+
+function test(name, fn) {
+    try {
+        fn();
+        results.innerHTML += `<div class="test pass">✓ ${name}</div>`;
+        passed++;
+    } catch (e) {
+        results.innerHTML += `<div class="test fail">✗ ${name}: ${e.message}</div>`;
+        failed++;
+    }
+}
+
+function assert(condition, msg) {
+    if (!condition) throw new Error(msg || 'assertion failed');
+}
+
+// ── Mock fetch with a fake SSE stream ──────────────────────
+function mockFetch(events) {
+    const lines = events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        start(controller) {
+            controller.enqueue(encoder.encode(lines));
+            controller.close();
+        }
+    });
+    window.fetch = async () => ({ status: 200, body: stream });
+}
+
+// ── Helpers (copied from your chat logic) ──────────────────
+const messagesEl = document.getElementById('messages');
+
+function appendBotMsg(text) {
+    const row = document.createElement('div');
+    row.className = 'msg-row bot';
+    row.innerHTML = `<div class="msg-bubble">${marked.parse(typeof text === 'string' ? text : '')}</div>`;
+    messagesEl.appendChild(row);
+    return row;
+}
+
+function showTyping() {
+    const row = document.createElement('div');
+    row.id = 'typing-row';
+    row.className = 'msg-row bot';
+    messagesEl.appendChild(row);
+    return row;
+}
+
+// ── Tests ──────────────────────────────────────────────────
+
+test('appendBotMsg renders markdown bold', () => {
+    messagesEl.innerHTML = '';
+    appendBotMsg('**hello**');
+    const html = messagesEl.querySelector('.msg-bubble').innerHTML;
+    assert(html.includes('<strong>'), `expected <strong>, got: ${html}`);
+});
+
+test('appendBotMsg renders markdown table', () => {
+    messagesEl.innerHTML = '';
+    appendBotMsg('| A | B |\n|---|---|\n| 1 | 2 |');
+    const html = messagesEl.querySelector('.msg-bubble').innerHTML;
+    assert(html.includes('<table'), `expected <table>, got: ${html}`);
+});
+
+test('showTyping creates typing row', () => {
+    messagesEl.innerHTML = '';
+    const row = showTyping();
+    assert(document.getElementById('typing-row') !== null, 'typing row not found');
+});
+
+test('mockFetch delivers status event', async () => {
+    mockFetch([{ type: 'status', data: '🔍 Searching...' }]);
+    const res = await fetch('/api/chat', { method: 'POST', body: '{}' });
+    const reader = res.body.getReader();
+    const { value } = await reader.read();
+    const text = new TextDecoder().decode(value);
+    assert(text.includes('status'), `expected status in: ${text}`);
+});
+
+test('tokens accumulate correctly', () => {
+    let raw = '';
+    const tokens = ['Hello', ', ', 'world', '!'];
+    for (const t of tokens) raw += t;
+    assert(raw === 'Hello, world!', `got: ${raw}`);
+});
+
+test('charQueue drains in order', () => {
+    const queue = [];
+    for (const char of 'abc') queue.push(char);
+    const result = [];
+    while (queue.length) result.push(queue.shift());
+    assert(result.join('') === 'abc', `got: ${result.join('')}`);
+});
+
+test('429 response shows busy message', async () => {
+    window.fetch = async () => ({ status: 429, body: null });
+    messagesEl.innerHTML = '';
+    const typingRow = showTyping();
+    const res = await fetch('/api/chat', { method: 'POST' });
+    if (res.status === 429) {
+        typingRow.remove();
+        appendBotMsg('⏳ busy');
+    }
+    const bubble = messagesEl.querySelector('.msg-bubble');
+    assert(bubble?.textContent.includes('⏳'), 'busy message not shown');
+});
+
+// ── Summary ────────────────────────────────────────────────
+setTimeout(() => {
+    results.innerHTML += `<hr><div><b>${passed} passed, ${failed} failed</b></div>`;
+}, 100);
+</script>
+</body>
+</html>

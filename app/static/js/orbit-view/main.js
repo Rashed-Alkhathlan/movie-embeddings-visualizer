@@ -1,4 +1,4 @@
-import { fetchPoster, escHtml } from './utils.js';
+import { fetchPoster, escHtml } from '../utils.js';
 
 const input = document.getElementById('search-input');
 const button = document.getElementById('search-btn');
@@ -365,9 +365,9 @@ function createFallbackEngine(onNodeClick) {
 async function createThreeEngine(onNodeClick) {
     // throw new Error('CDN blocked'); // Force fallback for testing
     clearSpaceElement();
-    const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js');
-    const { OrbitControls } = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/controls/OrbitControls.js');
-    const { CSS2DRenderer, CSS2DObject } = await import('https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/renderers/CSS2DRenderer.js');
+    const THREE = await import('three');
+    const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
+    const { CSS2DRenderer, CSS2DObject } = await import('three/addons/renderers/CSS2DRenderer.js');
 
     let hoveredMesh = null;
     const state = { objectsById: new Map(), centerId: null, pendingCenterId: null, animLines: [], transition: null };
@@ -444,12 +444,12 @@ async function createThreeEngine(onNodeClick) {
 
         const mat = new THREE.MeshStandardMaterial({
             color: node.color,
-            emissive: node.center ? 0x1acfa4 : (close ? 0x295ea7 : 0x1a3a5c),
-            emissiveIntensity: node.center ? 0.80 : (close ? 0.75 : 0.65),
+            emissive: node.center ? 0x1acfa4 : (close ? 0x295ea7 : 0x295eaF),
+            emissiveIntensity: node.center ? 0.80 : (close ? 0.80 : 0.75),
             metalness: 0.12,
             roughness: 0.38,
             transparent: true,
-            opacity: node.center ? 1 : (close ? 1 : 0.90),
+            opacity: node.center ? 1 : (close ? 1 : 0.85),
         });
 
         const mesh = new THREE.Mesh(new THREE.SphereGeometry(node.radius * 2, 28, 28), mat);
@@ -459,7 +459,7 @@ async function createThreeEngine(onNodeClick) {
         const halo = new THREE.Mesh(
             new THREE.SphereGeometry(node.radius * (node.center ? 3.65 : 3.45), 24, 24),
             new THREE.MeshBasicMaterial({
-                color: node.center ? 0x67f5d6 : (close ? 0x7cc0ff : 0x355276),
+                color: node.center ? 0x67f5d6 : (close ? 0x7cc0ff : 0x7cc0ff),
                 transparent: true,
                 opacity: node.center ? 0.23 : (close ? 0.15 : 0.07),
                 depthWrite: false,
@@ -526,8 +526,8 @@ async function createThreeEngine(onNodeClick) {
         const visual = getVisualMesh(hitMesh);
         const node = hitMesh.userData.movie;
         const close = isCloseNode(node);
-        visual.material.emissiveIntensity = node.center ? 0.62 : (close ? 0.45 : 0.28);
-        visual.material.emissive.set(node.center ? 0x1acfa4 : (close ? 0x295ea7 : 0x1a3a5c));
+        visual.material.emissiveIntensity = node.center ? 0.80 : (close ? 0.80 : 0.75);
+        visual.material.emissive.set(node.center ? 0x1acfa4 : (close ? 0x295ea7 : 0x295eaF));
         visual.scale.setScalar(1);
         if (!labelVisibleByDefault(node)) {
             // Detach label from scene graph AND remove its DOM element
@@ -864,7 +864,7 @@ async function initEngine(mode) {
     if (lastPayload) {
         await engine.applyGraph(lastPayload, false);
     } else {
-        performSearch('Creed III', false);
+        performSearch('The Avengers', false);
     }
 }
 

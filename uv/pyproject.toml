@@ -70,6 +70,7 @@ dependencies = [
     "jupyterlab-widgets==3.0.16",
     "kiwisolver==1.5.0",
     "langchain>=1.2.11",
+    "langchain-cerebras>=0.8.2",
     "langchain-google-genai>=4.2.1",
     "langchain-mcp-adapters>=0.2.1",
     "langgraph>=1.1.0",
