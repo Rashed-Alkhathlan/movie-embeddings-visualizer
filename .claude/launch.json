@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flask",
+      "runtimeExecutable": "C:\\Users\\x1Ras\\Desktop\\Coding\\movie-embeddings-visualizer\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["run.py"],
+      "port": 5000
+    }
+  ]
+}

@@ -23,10 +23,10 @@ Smoke-test without MCP runtime:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -83,27 +83,24 @@ _HEADERS = {
 }
 
 
-async def _async_get(
-    url: str,
-    timeout: float,
-    params: dict[str, str] | None = None,
-    headers: dict[str, str] | None = None,
-) -> httpx.Response:
-    transport = httpx.AsyncHTTPTransport(retries=JINA_MAX_RETRIES)
-    merged_headers = {**_HEADERS, **(headers or {})}
-    async with httpx.AsyncClient(
-        transport=transport, follow_redirects=True, headers=merged_headers
-    ) as client:
-        return await client.get(url, params=params, timeout=timeout)
-
-
 def _get(
     url: str,
     timeout: float,
     params: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> httpx.Response:
-    return asyncio.run(_async_get(url, timeout, params, headers))
+    """Blocking GET with bounded retries.
+
+    Synchronous on purpose: FastMCP invokes these tools from inside a running
+    event loop, so asyncio.run() here would raise "cannot be called from a
+    running event loop". Cross-URL concurrency lives in _fetch_concurrently.
+    """
+    transport = httpx.HTTPTransport(retries=JINA_MAX_RETRIES)
+    merged_headers = {**_HEADERS, **(headers or {})}
+    with httpx.Client(
+        transport=transport, follow_redirects=True, headers=merged_headers
+    ) as client:
+        return client.get(url, params=params, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +175,7 @@ def _ddg_search(query: str, max_results: int) -> list[dict[str, str]]:
         timeout=DDGO_TIMEOUT_SECONDS,
         params={"q": query, "kl": "wt-wt"},
         # DDG blocks requests that look like automated scrapers without a browser UA.
-        headers={"User-Agent": "Mozilla/5.0 (compatible; web-research-mcp/1.0)"},
+        headers={"User-Agent": "Mozilla/5.0 (compatible; web-search-mcp/1.0)"},
     )
     resp.raise_for_status()
     html = resp.text
@@ -273,17 +270,16 @@ def _jina_fetch(url: str, max_chars: int) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_all_async(urls: list[str], max_chars: int) -> list[dict[str, Any]]:
-    loop = asyncio.get_event_loop()
-    return list(await asyncio.gather(*[
-        loop.run_in_executor(None, _jina_fetch, url, max_chars)
-        for url in urls
-    ]))
-
-
 def _fetch_concurrently(urls: list[str], max_chars: int) -> list[dict[str, Any]]:
-    """Fetch all *urls* concurrently.  Order of results matches order of *urls*."""
-    return asyncio.run(_fetch_all_async(urls, max_chars))
+    """Fetch all *urls* concurrently.  Order of results matches order of *urls*.
+
+    Uses a thread pool rather than asyncio so it is safe to call from within
+    FastMCP's running event loop.
+    """
+    if not urls:
+        return []
+    with ThreadPoolExecutor(max_workers=min(len(urls), 8)) as pool:
+        return list(pool.map(lambda url: _jina_fetch(url, max_chars), urls))
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +304,7 @@ def _require_range(name: str, value: int, lo: int, hi: int) -> int:
 # MCP server
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("web_research")
+mcp = FastMCP("web_search")
 
 
 @mcp.tool()
@@ -526,13 +522,8 @@ def _smoke_test() -> None:
 # Entry-point
 # ---------------------------------------------------------------------------
 
-
-def main() -> None:
-    mcp.run(transport=DEFAULT_TRANSPORT)
-
-
 if __name__ == "__main__":
     if "--smoke-test" in sys.argv:
         _smoke_test()
     else:
-        main()
+        mcp.run(transport=DEFAULT_TRANSPORT)

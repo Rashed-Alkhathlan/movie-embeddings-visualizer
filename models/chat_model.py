@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import sys
 from pathlib import Path
@@ -7,22 +6,24 @@ from typing import Any
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langchain_core.tools import tool
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_cohere import ChatCohere 
-from langchain_mistralai import ChatMistralAI
+from langchain_cohere import ChatCohere
 from langchain_cerebras import ChatCerebras
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_mcp_adapters import client
-from movie_search import get_closest_movies
-# Avalible LLM models                                               PS: Update list when adding a new one
-# Used for frontend model switching and fallbacks
+
+log = logging.getLogger("app.tools")
+
+# Available models for the frontend switcher. Update when adding a model.
 AVAILABLE_MODELS = {
-    "gemini-3.1-flash-lite-preview":    {"label": "Gemini 3.1 Flash Lite Preview",   "provider": "Google"},
-    "command-a-03-2025":                {"label": "Command A",                       "provider": "Cohere"},
-    "qwen-3-235b-a22b-instruct-2507":   {"label": "Qwen 3 235b",                     "provider": "Cerebras"},
-    "moonshotai/kimi-k2-instruct":      {"label": "Kimi K2 Instruct",                "provider": "NVIDIA"},
-    "stepfun-ai/step-3.5-flash":        {"label": "Step 3.5 Flash",                  "provider": "NVIDIA"},
+    "gemini-3.1-flash-lite":             {"label": "Gemini 3.1 Flash Lite", "provider": "Google"},
+    "command-a-03-2025":                 {"label": "Command A",             "provider": "Cohere"},
+    "gpt-oss-120b":                      {"label": "GPT OSS",               "provider": "Cerebras"},
+    "zai-glm-4.7":                       {"label": "Z.ai GLM 4.7",          "provider": "Cerebras"},
+    "nvidia/nemotron-3-super-120b-a12b": {"label": "NemoTron 3 Super 120B", "provider": "NVIDIA"},
+    "stepfun-ai/step-3.7-flash":         {"label": "Step 3.7 Flash",        "provider": "NVIDIA"},
 }
 
 MODEL_PROVIDERS = {
@@ -32,281 +33,235 @@ MODEL_PROVIDERS = {
     "NVIDIA":   lambda model, temp: ChatNVIDIA(model=model, temperature=temp),
 }
 
+SYSTEM_PROMPT = (
+    "You are a knowledgeable movie assistant. You help users discover films, find "
+    "similar titles, and answer questions about movies, the people who make them, and "
+    "the industry.\n\n"
+    "Tools available to you:\n"
+    "- find_similar_movies: searches a vector database of films for titles similar to a "
+    'given movie. Use it for recommendations or "movies like X" requests. Pass a title, '
+    'optionally with the year, e.g. "Inception (2010)".\n'
+    "- web_search, fetch_web_page, research_topic, research_multiple_topics: use these "
+    "for facts that may be recent or that you are unsure of — release dates, current "
+    "cast, reviews, streaming availability, box office, or news.\n\n"
+    "Guidelines:\n"
+    "- For recommendation requests, prefer calling find_similar_movies and blend its "
+    "results with your own knowledge, clearly distinguishing which suggestions come from "
+    "the database and which are your own. Honor a requested count; otherwise offer around five.\n"
+    "- Reach for the web tools when an answer depends on up-to-date or verifiable facts "
+    "rather than relying on memory, and cite the source URLs you used.\n"
+    "- If a tool returns nothing useful, say so plainly and fall back to your own knowledge.\n"
+    "- Keep answers concise and well organized."
+)
 
-def _system_hint() -> dict[str, str]:
-    return {
-        "role": "system",
-        "content": (
-            "You can use the find_similar_movies tool to query similar movies from the vector database. "
-            "When the user asks for similar movies, call the tool and mix the output: half from the tool "
-            "results and half from your own knowledge. If the user specifies a number, split it evenly; "
-            "if it is odd, include one extra recommendation from the tool. If the user does not specify a "
-            "number, return 3 tool-based results and 2 knowledge-based results. Label or clearly distinguish "
-            "which are tool-based vs knowledge-based."
-        ),
-    }
+
+# ---------------------------------------------------------------------------
+# Tool-result compatibility shim
+# ---------------------------------------------------------------------------
+
+def _flatten_tool_content(blocks: list) -> str | None:
+    """Join text content blocks into one string; None if a non-text block is present."""
+    parts: list[str] = []
+    for block in blocks:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text", ""))
+        else:
+            return None  # leave image/file results untouched
+    return "\n".join(parts)
 
 
-@tool("find_similar_movies")
-def find_similar_movies(query: str, top_k: int = 3) -> dict[str, Any]:
-    """Return vector-search results for movies similar to the query."""
-    logging.getLogger("app.tools").info(
-        "tool=find_similar_movies query=%r top_k=%s",
-        query,
-        top_k,
+class FlattenToolContentMiddleware(AgentMiddleware):
+    """Force tool-result content to a plain string before the model call.
+
+    langchain-mcp-adapters returns each MCP result as a list of content blocks
+    (e.g. ``[{"type": "text", "text": ..., "id": "lc_..."}]``). OpenAI-compatible
+    providers such as Cerebras require tool message content to be a string and reject
+    the auto-generated ``id`` (HTTP 400). Flattening here keeps the payload valid for
+    every provider without mutating the agent's stored state.
+    """
+
+    def _rewrite(self, request):
+        messages = []
+        changed = False
+        for msg in request.messages:
+            if isinstance(msg, ToolMessage) and isinstance(msg.content, list):
+                text = _flatten_tool_content(msg.content)
+                if text is not None:
+                    msg = msg.model_copy(update={"content": text})
+                    changed = True
+            messages.append(msg)
+        return request.override(messages=messages) if changed else request
+
+    def wrap_model_call(self, request, handler):
+        return handler(self._rewrite(request))
+
+    async def awrap_model_call(self, request, handler):
+        return await handler(self._rewrite(request))
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_llm(model_name: str, temperature: float):
+    model = AVAILABLE_MODELS.get(model_name)
+    if not model:
+        raise ValueError(f"Unknown model: {model_name}")
+    factory = MODEL_PROVIDERS.get(model["provider"])
+    if not factory:
+        raise ValueError(f"Unsupported provider: {model['provider']}")
+    return factory(model_name, temperature)
+
+
+def _build_agent(llm: Any, tools: list) -> Any:
+    return create_agent(
+        llm, tools=tools, system_prompt=SYSTEM_PROMPT,
+        middleware=[FlattenToolContentMiddleware()],
     )
-    title, results = get_closest_movies(query, n=top_k)
-    if results is None:
-        return {"query": query, "found": False, "results": []}
-    return {"query": title, "found": True, "results": results}
 
 
-def print_agent_trace(result: Any) -> None:
-    for msg in result["messages"]:
-        role = type(msg).__name__
+def _tool_status(name: str, tool_input: dict) -> str:
+    """Human-friendly status line shown in the UI while a tool runs."""
+    name = name.lower()
+    if "similar" in name or "movie" in name:
+        query = tool_input.get("query") or ""
+        return f"🎬 Searching the movie database for **{query}**" if query else "🎬 Searching the movie database"
+    if "search" in name or "research" in name:
+        query = tool_input.get("queries") or tool_input.get("query")
+        if isinstance(query, list):
+            return "🔎 Researching the web for: " + ", ".join(f"**{q}**" for q in query)
+        verb = "Researching" if "research" in name else "Searching"
+        return f"🔍 {verb} the web for: **{query}**"
+    if "fetch" in name or "browse" in name:
+        url = tool_input.get("url") or tool_input.get("path", "")
+        short = url[:60] + "…" if len(url) > 60 else url
+        return f"🌐 Fetching page: `{short}`"
+    return f"⚙️ Using tool: `{name}`"
 
-        print(f"\n[{role}]")
 
-        if getattr(msg, "tool_calls", None):
-            for tool in msg.tool_calls:
-                print("TOOL:", tool["name"])
-                print("ARGS:", tool["args"])
+def _reasoning_and_answer(chunk: Any) -> tuple[str, str]:
+    """Pull (reasoning, answer) text deltas out of a streamed model chunk.
 
-        if getattr(msg, "content", None):
-            content = msg.content
-            if isinstance(content, str):
-                print(content)
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and "text" in item:
-                        text = item["text"]
+    Reasoning arrives either as typed content blocks (Gemini, NVIDIA) or as
+    ``reasoning_content`` in additional_kwargs (OpenAI-compatible providers).
+    """
+    blocks = getattr(chunk, "content_blocks", None)
+    if blocks:
+        reasoning = "".join(b.get("reasoning", "") for b in blocks if b.get("type") == "reasoning")
+        answer = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+        return reasoning, answer
 
-                        try:
-                            parsed = json.loads(text)
-                            print(json.dumps(parsed, indent=2))
-                        except:
-                            print(text)
+    reasoning = (getattr(chunk, "additional_kwargs", {}) or {}).get("reasoning_content", "") or ""
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        return reasoning, content
+    if isinstance(content, list):
+        return reasoning, "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    return reasoning, ""
+
+
+# ---------------------------------------------------------------------------
+# Chatbot
+# ---------------------------------------------------------------------------
 
 class MCPChatbot:
-
     def __init__(self, agent: Any, mcp_client: client.MultiServerMCPClient, model_name: str = "") -> None:
         self.agent = agent
-        self.mcp_client = mcp_client  # Keep a reference so MCP servers stay alive.
+        self.mcp_client = mcp_client  # keep a reference so the MCP servers stay alive
         self.history: list[dict[str, str]] = []
-        self.current_model = model_name  # track active model
-
+        self.current_model = model_name
 
     async def ask(self, text: str, keep_history: bool = True) -> str:
-        messages = [_system_hint()] + (list(self.history) if keep_history else [])
-        messages.append({"role": "user", "content": text})
-
+        messages = (list(self.history) if keep_history else []) + [{"role": "user", "content": text}]
         result = await self.agent.ainvoke({"messages": messages})
 
-        print_agent_trace(result)
-
-        result_messages = result.get("messages", []) if isinstance(result, dict) else []
-        answer = result_messages[-1].content if result_messages else str(result)
-
-        if isinstance(answer, list):
-            answer = answer[0].get("text", str(answer))
+        out = result.get("messages", []) if isinstance(result, dict) else []
+        answer = out[-1].content if out else str(result)
+        if isinstance(answer, list):  # content blocks → join their text
+            answer = "".join(b.get("text", "") for b in answer if isinstance(b, dict))
 
         if keep_history:
             self.history.append({"role": "user", "content": text})
             self.history.append({"role": "assistant", "content": answer})
-
         return answer
-    
-    
-    async def ask_stream(self, text: str, keep_history: bool = True):
-        messages = [_system_hint()] + (list(self.history) if keep_history else [])
-        messages.append({"role": "user", "content": text})
 
-        final_answer = ""
-        collected_messages = []
+    async def ask_stream(self, text: str, keep_history: bool = True):
+        """Stream the reply as (event_type, data) pairs.
+
+        Event types: ``status``/``status_clear`` (tool activity), ``thinking``
+        (reasoning), ``token`` (answer text), ``tokens_reset`` (discard answer shown
+        so far), ``reply_done``.
+        """
+        messages = (list(self.history) if keep_history else []) + [{"role": "user", "content": text}]
+
+        answer = ""
         tool_active = False
 
         async for event in self.agent.astream_events({"messages": messages}, version="v2"):
             kind = event.get("event")
 
-            print(kind)
-
-            if kind == "on_chain_end" and event.get("name") == "LangGraph":
-                output = event.get("data", {}).get("output", {})
-                collected_messages = output.get("messages", [])
-
-            elif kind == "on_tool_start":
+            if kind == "on_tool_start":
                 tool_active = True
-
-                if final_answer:
-                    final_answer = ""
+                if answer:  # discard any narration streamed before the tool call
+                    answer = ""
                     yield ("tokens_reset", "")
-
-                tool_name = event.get("name", "tool")
+                name = event.get("name", "tool")
                 tool_input = event.get("data", {}).get("input", {})
-
-                logging.getLogger("app.tools").info(
-                    "tool_start name=%s input=%s",
-                    tool_name,
-                    tool_input,
-                )
-
-                if "search" in tool_name.lower():
-                    queries = tool_input.get("queries") or tool_input.get("query")
-                    if isinstance(queries, list):
-                        query_text = ", ".join(f"**{q}**" for q in queries)
-                        status = f"🔎 Multi-Researching the web for: {query_text}"
-                    else:
-                        query_text = f"**{queries}**"
-                        if "research" in tool_name.lower():
-                            status = f"🔍 Researching the web for: {query_text}"
-                        else:
-                            status = f"🔍 Searching the web for: {query_text}"
-
-                elif "fetch" in tool_name.lower() or "browse" in tool_name.lower():
-                    url = tool_input.get("url", tool_input.get("path", ""))
-                    short_url = url[:60] + "…" if len(url) > 60 else url
-                    status = f"🌐 Fetching page: `{short_url}`"
-
-                else:
-                    status = f"⚙️ Using tool: `{tool_name}`"
-
-                yield ("status", status)
+                log.info("tool_start name=%s input=%s", name, tool_input)
+                yield ("status", _tool_status(name, tool_input))
 
             elif kind == "on_tool_end":
                 tool_active = False
-                tool_name = event.get("name", "tool")
-                tool_output = event.get("data", {}).get("output", None)
-                logging.getLogger("app.tools").info(
-                    "tool_end name=%s output=%s",
-                    tool_name,
-                    tool_output,
-                )
                 yield ("status_clear", "")
 
-            elif kind == "on_chat_model_stream":
-                if tool_active:
-                    continue
-
+            elif kind == "on_chat_model_stream" and not tool_active:
                 chunk = event.get("data", {}).get("chunk")
                 if not chunk:
                     continue
-
-                content_blocks = getattr(chunk, "content_blocks", None)
-                if content_blocks:
-                    # Path 1: Gemini, Anthropic, NVIDIA (future) — structured blocks
-
-                    for block in content_blocks:
-                        if block.get("type") == "reasoning":
-                            thinking_text = block.get("reasoning", "")
-                            if thinking_text:
-                                yield ("thinking", thinking_text)
-
-                        elif block.get("type") == "text":
-                            token = block.get("text", "")
-
-                            if token:
-                                if "</think>" in token: # For Step 3.5 Flash which may include thinking and answer in the same block, we split them and emit a reset event for the thinking part
-                                    token = token.split("\n</think>\n")[-1].strip()
-                                    yield ("tokens_reset", "")
-
-                                if token:
-                                    final_answer += token
-                                    yield ("token", token)
-
-                else:
-                    # Path 2: additional_kwargs (fallback for providers without content_blocks)
-                    reasoning = (getattr(chunk, "additional_kwargs", {}) or {}).get("reasoning_content", "")
-                    if reasoning:
-                        yield ("thinking", reasoning)
-
-
-                    # Path 3: plain string content
-                    content = getattr(chunk, "content", "")
-                    if isinstance(content, str) and content:
-                        final_answer += content
-                        yield ("token", content)
-                    elif isinstance(content, list):
-                        for item in content:
-                            token = item.get("text", "") if isinstance(item, dict) else ""
-                            if token:
-                                final_answer += token
-                                yield ("token", token)
-
-        if collected_messages:
-            # print_agent_trace({"messages": collected_messages})   # Uncomment for printing the agent's trace for debuging
-            pass
+                reasoning, token = _reasoning_and_answer(chunk)
+                if reasoning:
+                    yield ("thinking", reasoning)
+                if token:
+                    answer += token
+                    yield ("token", token)
 
         if keep_history:
             self.history.append({"role": "user", "content": text})
-            self.history.append({"role": "assistant", "content": final_answer})
-
+            self.history.append({"role": "assistant", "content": answer})
         yield ("reply_done", "")
 
-
     async def switch_model(self, model_name: str, temperature: float = 0.7) -> None:
-        model = AVAILABLE_MODELS.get(model_name)
-        if not model:
-            raise ValueError(f"Unknown model: {model_name}")
-
-        provider = model["provider"]
-
-        model_provider = MODEL_PROVIDERS.get(provider)
-        if not model_provider:
-            raise ValueError(f"Unsupported provider: {provider}")
-
-        llm = model_provider(model_name, temperature)
-
-        tools = [find_similar_movies]
-        tools.extend(await self.mcp_client.get_tools())
-        self.agent = create_agent(llm, tools=tools)
-
+        llm = _make_llm(model_name, temperature)
+        tools = await self.mcp_client.get_tools()
+        self.agent = _build_agent(llm, tools)
         self.current_model = model_name
         self.history.clear()
-
 
     def reset(self) -> None:
         self.history.clear()
 
 
-async def build_chatbot(
-    model_name: str = "gemini-3.1-flash-lite-preview",
-    temperature: float = 0.7,
-    enable_tools: bool = True,
-) -> MCPChatbot:
-    
+async def build_chatbot(model_name: str = "gemini-3.1-flash-lite", temperature: float = 0.7) -> MCPChatbot:
     load_dotenv()
-    base_dir = Path(__file__).resolve().parent.parent
-    mcp_dir = base_dir / "mcps"
+    mcp_dir = Path(__file__).resolve().parent.parent / "mcps"
+    mcp_client = client.MultiServerMCPClient({
+        "web_search": {
+            "command": sys.executable,
+            "args": [str(mcp_dir / "web_search_mcp.py")],
+            "transport": "stdio",
+        },
+        "database_search": {
+            "command": sys.executable,
+            "args": [str(mcp_dir / "database_search_mcp.py")],
+            "transport": "stdio",
+        },
+    })
 
-    mcp_client = client.MultiServerMCPClient(
-        {
-            "web_search": {
-                "command": sys.executable,
-                "args": [str(mcp_dir / "web_search_mcp.py")],
-                "transport": "stdio",
-            }
-        }
-    )
-
-    model = AVAILABLE_MODELS.get(model_name)
-    if not model:
-        raise ValueError(f"Unknown model: {model_name}")
-
-    provider = model["provider"]
-
-    model_provider = MODEL_PROVIDERS.get(provider)
-    if not model_provider:
-        raise ValueError(f"Unsupported provider: {provider}")
-
-    llm = model_provider(model_name, temperature)
-
-    if enable_tools:
-        tools = [find_similar_movies]
-        tools.extend(await mcp_client.get_tools())
-        agent = create_agent(llm, tools=tools)
-    else:
-        agent = create_agent(llm)
-
+    llm = _make_llm(model_name, temperature)
+    tools = await mcp_client.get_tools()
+    agent = _build_agent(llm, tools)
     return MCPChatbot(agent=agent, mcp_client=mcp_client, model_name=model_name)
 
 
@@ -314,13 +269,12 @@ def create_chatbot() -> MCPChatbot:
     return asyncio.run(build_chatbot())
 
 
-# For testing purposes, you can run this file directly to interact with the chatbot in the console.
+# Run this file directly to chat in the console.
 if __name__ == "__main__":
     chatbot = create_chatbot()
-    print("Chatbot is ready! Type your messages below (type 'exit' to quit).")
+    print("Chatbot ready! Type 'exit' to quit.")
     while True:
         user_input = input("You: ")
         if user_input.lower() == "exit":
             break
-        response = asyncio.run(chatbot.ask(user_input))
-        print(f"Bot: {response}")
+        print("Bot:", asyncio.run(chatbot.ask(user_input)))

@@ -63,13 +63,12 @@ inputEl.addEventListener('input', () => {
     sendBtn.disabled = !inputEl.value.trim();
 });
 
-/* Suggestion chips */
+/* Suggestion chips — kept in place so they can be reused */
 suggestionsEl.addEventListener('click', (e) => {
     const chip = e.target.closest('.suggestion-chip');
     if (!chip) return;
     inputEl.value = chip.textContent.replace(/^[^\w]+/, '').trim();
     inputEl.dispatchEvent(new Event('input'));
-    suggestionsEl.remove();
     sendMessage();
 });
 
@@ -193,6 +192,57 @@ async function sendMessage() {
     let draining = false;
     let activeStatuses = [];        // ← queue of active status messages
 
+    // Reasoning ("thinking") panel — lazily created on the first thinking event.
+    let rawThinking = '';
+    let thinkPanel = null;
+    let thinkBody = null;
+    let firstTokenSeen = false;
+
+    function hideTyping() {
+        if (typingRow.parentNode) typingRow.remove();
+    }
+
+    function ensureStreamingRow() {
+        if (streamingRow) return streamingRow;
+        hideTyping();
+        streamingRow = document.createElement('div');
+        streamingRow.className = 'msg-row bot';
+        // .bot-response sizes to the wider of the reasoning panel / answer bubble (capped),
+        // and both children fill it — so the panel and bubble are always the same width.
+        streamingRow.innerHTML = `
+            <div class="msg-avatar">AI</div>
+            <div class="msg-col">
+                <div class="bot-response">
+                    <div class="msg-bubble streaming pending"></div>
+                </div>
+            </div>`;
+        messagesEl.appendChild(streamingRow);
+        return streamingRow;
+    }
+
+    function ensureThinkPanel() {
+        ensureStreamingRow();
+        if (thinkPanel) return thinkPanel;
+        const wrap = streamingRow.querySelector('.bot-response');
+        thinkPanel = document.createElement('div');
+        thinkPanel.className = 'think-panel streaming expanded';
+        thinkPanel.innerHTML = `
+            <button class="think-toggle" type="button" aria-expanded="true">
+                <span class="think-spinner"></span>
+                <span class="think-label">Thinking…</span>
+                <svg class="think-chevron" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+            </button>
+            <div class="think-body"></div>`;
+        wrap.insertBefore(thinkPanel, wrap.firstChild);
+        thinkBody = thinkPanel.querySelector('.think-body');
+        const toggle = thinkPanel.querySelector('.think-toggle');
+        toggle.addEventListener('click', () => {
+            const open = thinkPanel.classList.toggle('expanded');
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        return thinkPanel;
+    }
+
     function renderStatuses() {
         if (activeStatuses.length === 0) {
             typingRow.innerHTML = `
@@ -210,6 +260,8 @@ async function sendMessage() {
             typingRow.innerHTML = `
                 <div class="msg-avatar">AI</div>
                 <div class="status-bubble">${items}</div>`;
+            // A status may arrive after reasoning removed the typing row — re-attach it.
+            if (!typingRow.parentNode) messagesEl.appendChild(typingRow);
         }
         scrollToBottom(messagesEl, 200);
     }
@@ -268,40 +320,70 @@ async function sendMessage() {
                 catch { continue; }
 
                 if (event.type === 'status') {
-                    activeStatuses.push(event.data);    // ← push to queue
-                    renderStatuses();
+                    if (thinkPanel && !firstTokenSeen) {
+                        // Tool used mid-reasoning — record it inline in the reasoning panel
+                        // (as a blockquote) and flag the panel so the marker shows a spinner
+                        // while the tool is still running.
+                        rawThinking += `\n\n> ${event.data}\n\n`;
+                        thinkBody.innerHTML = marked.parse(rawThinking);
+                        thinkPanel.classList.add('tool-running');
+                        scrollToBottom(messagesEl, 50);
+                    } else {
+                        activeStatuses.push(event.data);
+                        renderStatuses();
+                    }
 
                 } else if (event.type === 'status_clear') {
-                    activeStatuses.shift();             // ← remove oldest
-                    renderStatuses();
+                    if (thinkPanel && thinkPanel.classList.contains('tool-running')) {
+                        thinkPanel.classList.remove('tool-running');   // tool finished; freeze the marker
+                    } else if (activeStatuses.length) {
+                        activeStatuses.shift();
+                        renderStatuses();
+                    }
+
+                } else if (event.type === 'thinking') {
+                    activeStatuses = [];
+                    hideTyping();
+                    ensureThinkPanel();
+                    rawThinking += event.data;
+                    thinkBody.innerHTML = marked.parse(rawThinking);
+                    scrollToBottom(messagesEl, 200);
 
                 } else if (event.type === 'token') {
                     activeStatuses = [];                // ← clear when answer starts
-                    if (!streamingRow) {
-                        typingRow.remove();
-                        streamingRow = document.createElement('div');
-                        streamingRow.className = 'msg-row bot';
-                        streamingRow.innerHTML = `
-                            <div class="msg-avatar">AI</div>
-                            <div class="msg-col">
-                                <div class="msg-bubble streaming"></div>
-                            </div>`;
-                        messagesEl.appendChild(streamingRow);
+                    hideTyping();
+                    ensureStreamingRow();
+                    streamingRow.querySelector('.msg-bubble').classList.remove('pending');
+                    if (!firstTokenSeen) {
+                        firstTokenSeen = true;
+                        if (thinkPanel) {               // collapse reasoning once the answer begins
+                            thinkPanel.classList.remove('streaming', 'expanded', 'tool-running');
+                            const toggle = thinkPanel.querySelector('.think-toggle');
+                            toggle.setAttribute('aria-expanded', 'false');
+                            thinkPanel.querySelector('.think-label').textContent = 'Reasoning';
+                        }
                     }
                     for (const char of event.data) charQueue.push(char);
                     if (!draining) drainQueue();
 
                 } else if (event.type === 'tokens_reset') {
-                    if (streamingRow) {
-                        streamingRow.remove();
-                        streamingRow = null;
-                    }
                     rawTokens = '';
                     charQueue = [];
                     draining = false;
-                    // Restore typing indicator
-                    typingRow.id = 'typing-row';
-                    messagesEl.appendChild(typingRow);
+                    if (streamingRow && thinkPanel) {
+                        // Keep the reasoning panel; only discard the partial answer.
+                        // The blinking cursor on the empty bubble signals more is coming.
+                        const bubble = streamingRow.querySelector('.msg-bubble');
+                        if (bubble) bubble.innerHTML = '';
+                    } else {
+                        if (streamingRow) {
+                            streamingRow.remove();
+                            streamingRow = null;
+                        }
+                        // Restore typing indicator
+                        typingRow.id = 'typing-row';
+                        messagesEl.appendChild(typingRow);
+                    }
                     scrollToBottom(messagesEl, 200);
 
                 } else if (event.type === 'reply_done') {
@@ -311,10 +393,19 @@ async function sendMessage() {
                             setTimeout(finalize, 20);
                             return;
                         }
+                        hideTyping();
+                        if (thinkPanel) {               // settle the reasoning panel
+                            thinkPanel.classList.remove('streaming', 'tool-running');
+                            thinkPanel.querySelector('.think-label').textContent = 'Reasoning';
+                        }
                         if (streamingRow) {
                             const bubble = streamingRow.querySelector('.msg-bubble');
                             bubble.classList.remove('streaming');
-                            bubble.innerHTML = marked.parse(rawTokens);
+                            if (rawTokens) {
+                                bubble.innerHTML = marked.parse(rawTokens);
+                            } else if (thinkPanel) {
+                                bubble.remove();        // reasoning only, no answer text
+                            }
 
                             const col = streamingRow.querySelector('.msg-col');
                             const time = document.createElement('div');
@@ -461,3 +552,60 @@ document.addEventListener('click', (e) => {
 });
 
 loadModels();
+
+// ---------------------- Widenable chat column -----------------------
+
+const pageEl       = document.querySelector('.page');
+const resizeHandle = document.getElementById('resize-handle');
+const DEFAULT_WIDTH = 850;
+const MIN_WIDTH     = 520;
+
+function clampWidth(w) {
+    return Math.max(MIN_WIDTH, Math.min(w, Math.round(window.innerWidth * 0.96)));
+}
+
+function setChatWidth(w, persist = true) {
+    const width = clampWidth(w);
+    pageEl.style.width = width + 'px';
+    if (persist) localStorage.setItem('chatWidth', width);
+}
+
+// Restore a saved width on load.
+const savedWidth = parseInt(localStorage.getItem('chatWidth'), 10);
+if (savedWidth) setChatWidth(savedWidth, false);
+
+if (resizeHandle) {
+    let dragging = false;
+
+    const onMove = (e) => {
+        if (!dragging) return;
+        const x = e.clientX ?? e.touches?.[0]?.clientX;
+        if (x == null) return;
+        // The column is centered, so half its width is the distance from center to cursor.
+        setChatWidth(Math.round(2 * (x - window.innerWidth / 2)));
+    };
+
+    const stop = () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.classList.remove('resizing');
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', stop);
+    };
+
+    resizeHandle.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        dragging = true;
+        document.body.classList.add('resizing');
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', stop);
+    });
+
+    // Double-click resets to the default width.
+    resizeHandle.addEventListener('dblclick', () => setChatWidth(DEFAULT_WIDTH));
+}
+
+// Keep the column within bounds if the window shrinks.
+window.addEventListener('resize', () => {
+    if (pageEl.style.width) setChatWidth(parseInt(pageEl.style.width, 10) || DEFAULT_WIDTH, false);
+});

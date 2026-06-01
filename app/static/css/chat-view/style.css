@@ -68,9 +68,43 @@ html, body {
     height: 100vh;
     display: grid;
     grid-template-rows: auto 1fr auto;
-    max-width: 850px;
+    width: var(--chat-width, 850px);
+    max-width: 96vw;
     margin: 0 auto;
     padding: 0 20px;
+}
+
+/* ── Widenable chat column ────────────────────────────── */
+.resize-handle {
+    position: absolute;
+    top: 0; bottom: 0;
+    right: -12px;
+    width: 16px;
+    z-index: 40;
+    cursor: ew-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+}
+.resize-handle::before {
+    content: '';
+    width: 3px;
+    height: 44px;
+    border-radius: 3px;
+    background: rgba(87,179,255,0.18);
+    transition: background 0.2s, height 0.2s;
+}
+.resize-handle:hover::before,
+body.resizing .resize-handle::before {
+    background: rgba(87,179,255,0.55);
+    height: 90px;
+}
+body.resizing { user-select: none; cursor: ew-resize; }
+
+@media (max-width: 720px) {
+    .resize-handle { display: none; }
+    .page { width: auto; }
 }
 
 /* ── Header ───────────────────────────────────────────── */
@@ -249,6 +283,16 @@ header {
 .msg-bubble li {
     margin: 4px 0;      /* Space between items */
 }
+
+/* Roomier spacing for the agent's prose and section dividers */
+.msg-bubble p { margin: 0 0 14px; }
+.msg-bubble p:last-child { margin-bottom: 0; }
+.msg-bubble hr {
+    height: 0;
+    border: none;
+    border-top: 1px solid rgba(87,179,255,0.22);
+    margin: 22px 0;
+}
 .msg-row.bot .msg-bubble {
     background: var(--bot-bg);
     border: 1px solid var(--bot-border);
@@ -345,6 +389,9 @@ header {
     font-size: 13px;
     line-height: 1.4;
 }
+
+/* Answer bubble stays hidden until the first answer token (reasoning may stream first) */
+.msg-bubble.pending { display: none; }
 
 /* Streaming cursor */
 .msg-bubble.streaming::after {
@@ -616,4 +663,100 @@ footer {
 
 .msg-bubble tr:hover td {
     background: rgba(87,179,255,0.05);
+}
+
+/* ── Bot response wrapper — keeps the reasoning panel and answer the same width ── */
+.bot-response {
+    display: flex;
+    flex-direction: column;
+    width: fit-content;
+    max-width: 72%;
+}
+.bot-response > .msg-bubble,
+.bot-response > .think-panel {
+    width: 100%;
+    max-width: none;
+}
+
+/* ── Reasoning (thinking) panel ───────────────────────── */
+.think-panel {
+    max-width: 72%;
+    margin-bottom: 8px;
+    border: 1px solid rgba(87,179,255,0.18);
+    border-radius: 12px;
+    background: rgba(87,179,255,0.045);
+    overflow: hidden;
+    animation: msgSlide 0.25s ease both;
+}
+.think-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 9px 12px;
+    color: rgba(140,190,255,0.7);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    transition: color 0.2s, background 0.2s;
+}
+.think-toggle:hover { color: var(--blue); background: rgba(87,179,255,0.05); }
+.think-label { flex: 1; text-align: left; }
+.think-label::before { content: '💭 '; }
+.think-panel.streaming .think-label { color: var(--blue); }
+.think-chevron {
+    width: 14px; height: 14px;
+    fill: currentColor;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+}
+.think-panel.expanded .think-chevron { transform: rotate(180deg); }
+.think-spinner {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    border: 2px solid rgba(87,179,255,0.2);
+    border-top-color: var(--blue);
+    animation: spin 1.2s linear infinite;
+    flex-shrink: 0;
+    display: none;
+}
+.think-panel.streaming .think-spinner { display: inline-block; }
+.think-body {
+    display: none;
+    padding: 0 14px 12px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: rgba(150,180,220,0.78);
+    border-top: 1px solid rgba(87,179,255,0.1);
+}
+.think-panel.expanded .think-body { display: block; padding-top: 10px; }
+.think-body p { margin: 0 0 8px; }
+.think-body p:last-child { margin-bottom: 0; }
+.think-body ul, .think-body ol { margin: 4px 0; padding-left: 20px; }
+/* Tool-use marker recorded inline in the reasoning */
+.think-body blockquote {
+    margin: 10px 0;
+    padding: 6px 12px;
+    border-left: 2px solid var(--teal);
+    background: rgba(56,224,184,0.06);
+    border-radius: 6px;
+    color: rgba(170,230,210,0.9);
+    font-size: 12.5px;
+}
+.think-body blockquote p { margin: 0; }
+/* Spinner on the active tool marker while its tool is still running */
+.think-panel.tool-running .think-body blockquote:last-of-type p::after {
+    content: '';
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-left: 8px;
+    vertical-align: middle;
+    border-radius: 50%;
+    border: 2px solid rgba(56,224,184,0.25);
+    border-top-color: var(--teal);
+    animation: spin 1.2s linear infinite;
 }

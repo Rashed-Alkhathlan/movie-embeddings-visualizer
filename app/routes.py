@@ -4,7 +4,7 @@ import queue
 import threading
 from flask import request, jsonify, render_template, Response, stream_with_context
 from app import app, bot, AVAILABLE_MODELS
-from app.services import get_closest_movies, get_movie_graph, get_autocomplete_suggestions
+from movie_data import get_autocomplete_suggestions, get_closest_movies, get_movie_graph
 
 @app.get("/")
 def index():

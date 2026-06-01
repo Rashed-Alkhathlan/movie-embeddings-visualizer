@@ -94,7 +94,7 @@ export function escHtml(str) {
  * @param {number} threshold - Distance in px from bottom to trigger scroll default: 0 (= disabled)
  * @param {boolean} smooth - Whether to scroll smoothly default: true
  */
-export function scrollToBottom(el, threshold = 0, smooth = true) {
+export function scrollToBottom(el, threshold = 100, smooth = true) {
 
     if (threshold !== 0) {
         const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
